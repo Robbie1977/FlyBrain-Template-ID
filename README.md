@@ -46,6 +46,8 @@ For OBJ, PLY, and SWC files, template identification requires:
 - Examining coordinate ranges
 - Comparing to known template bounds
 
+**Coordinate Units**: OBJ/PLY/SWC files typically use coordinates in microns (μm), though files derived directly from electron microscopy (EM) connectome data may use nanometers (nm). Given that 1 μm = 1000 nm and Drosophila brain dimensions are well-established, the coordinate scale can be readily determined. For instance, a coordinate of (10,0,0) indicates a position 10 μm from the origin (0,0,0). Furthermore, as the origin is conventionally placed at the corner of the bounding volume with substantial empty space surrounding the neuropil, neuronal coordinates rarely appear near the origin (unless an offset has been applied), facilitating unit scale identification.
+
 ### Template Matching Logic
 
 1. **Extract dimensions and voxel sizes** from file metadata
