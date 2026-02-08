@@ -95,8 +95,24 @@ For OBJ, PLY, and SWC files, template identification requires:
 4. **Gender Differences**: Male/female templates account for sexual dimorphism in brain structure
 5. **Resolution Trade-offs**: Higher magnification (63x) provides finer detail but smaller field of view
 6. **VFB Template Availability**: Virtual Fly Brain maintains unisex templates (JRC2018U for brain, JRCVNC2018U for VNC) and one female brain template (JRCFIB2018F). No separate male templates exist in VFB.
+7. **Hemibrain Note**: The Hemibrain (JRC_FlyEM_Hemibrain) is not one of the main VFB templates for new data alignment. It contains original hemibrain neurons aligned to it but is not actively used for aligning new datasets.
 
-## File Format Conversion
+### All VFB Templates
+
+The following table lists all templates currently available in Virtual Fly Brain, with metadata extracted from VFB. **Active templates** (marked with ⭐) are the main ones VFB uses for aligning new data. Note: VFB indexing may start from 0 while the extent values here represent actual voxel counts.
+
+| VFB ID | Name/Description | Extent (X×Y×Z) | Voxel Size (X×Y×Z μm) | Orientation | Status |
+|--------|------------------|-----------------|----------------------|-------------|--------|
+| VFB_00101567 | JRC2018Unisex (Brain) | 1211×567×175 | 0.5189161×0.5189161×1.0 | LPS | ⭐ **ACTIVE** - Main brain template |
+| VFB_00200000 | JRC2018UnisexVNC | 660×1290×382 | 0.4×0.4×0.4 | LPS | ⭐ **ACTIVE** - Main VNC template |
+| VFB_00049000 | L3 CNS template | 486×1999×364 | 0.293×0.293×0.5 | RIA | ⭐ **ACTIVE** - Larval CNS template |
+| VFB_00050000 | L1 larval CNS ssTEM - Cardona/Janelia (Seymour) | 512×512×484 | 0.243×0.243×0.5 | LIP | ⭐ **ACTIVE** - L1EM larval CNS template |
+| VFB_00101384 | JRC_FlyEM_Hemibrain | 544×640×672 | 0.512×0.512×0.512 | LIP | Hemibrain neurons only |
+| VFB_00017894 | JFRC2 | 1023×511×217 | 0.62208×0.62208×0.62208 | LPS | Legacy template |
+| VFB_00030786 | Ito2014 | 511×511×134 | 0.636234×0.636234×1.41 | LPS | Legacy template |
+| VFB_00100000 | Court2018VNS | 511×1023×229 | 0.4612588×0.4612588×0.46 | LPS | Legacy VNS template |
+| VFB_00110000 | Adult Head (McKellar2020) | 961×2000×248 | 0.438472×0.438537×1.31787 | RAS | Specialized head template |
+| VFB_00120000 | Adult T1 Leg (Kuan2020) | 595×763×600 | 1.0×1.0×1.0 | RPI | Specialized leg template |
 
 ### NRRD Files
 NRRD files are natively supported by navis. Load directly:
