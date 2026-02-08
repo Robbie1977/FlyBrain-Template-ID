@@ -84,11 +84,8 @@ For OBJ, PLY, and SWC files, template identification requires:
 | Janelia Name | Navis Name | VFB ID | VFB Name |
 |--------------|------------|--------|----------|
 | JRC2018_UNISEX_38um_iso_16bit | JRC2018U | VFB_00101567 | JRC2018Unisex |
-| JRC2018_FEMALE_38um_iso_16bit | JRC2018F | VFB_00101384 | JRC2018_Female_20x_HR |
-| JRC2018_MALE_38um_iso_16bit | JRC2018M | VFB_00101514 | JRC2018_Male_20x_HR |
+| JRC2018_FEMALE_38um_iso_16bit | JRC2018F | VFB_00101384 | JRC_FlyEM_Hemibrain |
 | JRCVNC2018U | JRCVNC2018U | VFB_00200000 | JRC2018UnisexVNC |
-| JRCVNC2018F | JRCVNC2018F | VFB_00102419 | JRC2018_VNC_Female_40x_DS |
-| JRCVNC2018M | JRCVNC2018M | VFB_00102421 | JRC2018_VNC_Male_40x_DS |
 
 ### Key Notes on Template Spaces
 
@@ -97,6 +94,7 @@ For OBJ, PLY, and SWC files, template identification requires:
 3. **Isotropic vs Anisotropic**: Some templates are truly isotropic (equal voxel sizes in all dimensions)
 4. **Gender Differences**: Male/female templates account for sexual dimorphism in brain structure
 5. **Resolution Trade-offs**: Higher magnification (63x) provides finer detail but smaller field of view
+6. **VFB Template Availability**: Virtual Fly Brain maintains unisex templates (JRC2018U for brain, JRCVNC2018U for VNC) and one female brain template (JRCFIB2018F). No separate male templates exist in VFB.
 
 ## File Format Conversion
 
