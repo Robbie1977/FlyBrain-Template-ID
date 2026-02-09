@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^source venv/bin/activate && python convert_tiff_to_nrrd\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

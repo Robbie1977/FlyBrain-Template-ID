@@ -1,0 +1,8 @@
+Images
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+venv/bin
+nrrd_output/*

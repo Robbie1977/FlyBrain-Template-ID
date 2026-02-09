@@ -2,6 +2,40 @@
 
 This guide provides comprehensive information for identifying template images aligned to existing template spaces, converting common file types to navis loadable formats, and bridging to standard VFB templates using navis FlyBrains tools.
 
+## Recent Updates: TIFF File Processing
+
+This repository now includes tools for processing TIFF microscopy files from fly brain imaging:
+
+### TIFF File Analysis
+- **analyze_tiffs.py**: Extracts metadata from TIFF files including dimensions, voxel sizes, and ImageJ metadata
+- **identify_template.py**: Matches TIFF files to Janelia/VFB template spaces based on physical dimensions
+- **convert_tiff_to_nrrd.py**: Converts TIFF stacks to NRRD format compatible with navis
+- **demonstrate_navis_usage.py**: Shows how to load and work with converted NRRD files
+
+### Processed Files
+The Images/ folder contains TIFF files that have been analyzed:
+- **Brain images**: ~600-650 μm extent, align to JRC2018U template
+- **VNC images**: ~380-390 μm extent, align to JRCVNC2018U template
+- **Multi-channel data**: 2 channels (signal + reference/NC82 marker)
+- **Converted NRRDs**: Available in nrrd_output/ directory
+
+### Quick Start for TIFF Processing
+```bash
+# Set up environment
+python3.10 -m venv venv
+source venv/bin/activate
+pip install tifffile navis nrrd flybrains
+
+# Analyze TIFF files
+python analyze_tiffs.py
+
+# Convert to NRRD
+python convert_tiff_to_nrrd.py
+
+# Load with navis
+python demonstrate_navis_usage.py
+```
+
 ## Table of Contents
 1. [Template Identification](#template-identification)
 2. [Template Specifications](#template-specifications)
