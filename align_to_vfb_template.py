@@ -147,19 +147,16 @@ def prepare_channels_for_alignment(nrrd_path, analysis_results, output_dir=None)
             channel_header['dimension'] = 3
             channel_header['sizes'] = channel_data.shape
             
-            # Add orientation information
+            # Always set VFB coordinate system (LPS)
+            channel_header['space'] = 'left-posterior-superior'
+            if 'space origin' not in channel_header:
+                channel_header['space origin'] = [0, 0, 0]
+            
+            # Add orientation information if available
             analysis = analysis_results.get(nrrd_path, {})
             if analysis and 'orientation' in analysis:
                 # Add comment about orientation
                 channel_header['orientation'] = analysis['orientation']
-                # Ensure space origin is set
-                if 'space origin' not in channel_header:
-                    channel_header['space origin'] = [0, 0, 0]
-                # Ensure space directions are correct
-                if 'space directions' in channel_header:
-                    # VFB uses LPS coordinate system
-                    # Add metadata about coordinate system
-                    channel_header['space'] = 'left-posterior-superior'
 
             nrrd.write(str(channel_path), channel_data, channel_header)
             channels.append(channel_path)

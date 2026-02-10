@@ -8,3 +8,7 @@ venv/bin
 nrrd_output/*
 channels/*
 corrected/*
+CMTK/*
+*.xform
+test_aligned.nrrd
+vfb_ready/*
