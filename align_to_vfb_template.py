@@ -95,26 +95,55 @@ def apply_orientation_correction(nrrd_path, analysis, output_dir=None):
     output_dir.mkdir(exist_ok=True)
 
     orientation = analysis.get('orientation', '')
+    image_type = analysis.get('type', 'Unknown')
+    physical_x, physical_y, physical_z = analysis.get('physical_extent', (0, 0, 0))
     
     print(f"\nApplying orientation correction to {nrrd_path.name}:")
     print(f"  Detected orientation: {orientation}")
+    print(f"  Image type: {image_type}")
+    print(f"  Physical extents: X={physical_x:.1f}, Y={physical_y:.1f}, Z={physical_z:.1f}")
     
-    # For now, just copy files - in practice, you would apply rotations/flips here
-    # based on the orientation analysis
-    if 'rotated' in orientation:
-        print("  Warning: Image may need orientation correction before alignment")
-        print("  The same correction must be applied to ALL channels from this image")
-        print("  Consider using ImageJ/FIJI or numpy array operations for reorientation")
-        print("  Example: np.rot90(array, k=1, axes=(0,1)) for 90-degree rotation")
-        # TODO: Implement automatic orientation correction
-        # Must apply identical transformation to all channels
+    needs_rotation = False
     
-    # For this implementation, we'll assume images are already in correct orientation
-    # or will be manually corrected
+    if image_type == 'Brain':
+        # For brain, expect X (left-right) > Y (anterior-posterior)
+        if physical_x < physical_y:
+            needs_rotation = True
+            print("  Brain image: X < Y, applying 90-degree counterclockwise rotation")
+    elif image_type == 'VNC':
+        # For VNC, expect Y (anterior-posterior) > X (left-right)
+        if physical_y < physical_x:
+            needs_rotation = True
+            print("  VNC image: Y < X, applying 90-degree counterclockwise rotation")
+    
     corrected_path = output_dir / nrrd_path.name
-    import shutil
-    shutil.copy2(nrrd_path, corrected_path)
-    print(f"  Copied to {corrected_path.name} (no correction applied)")
+    
+    if needs_rotation:
+        # Load and rotate the NRRD
+        data, header = nrrd.read(str(nrrd_path))
+        
+        # Rotate 90 degrees counterclockwise in XY plane
+        rotated_data = np.rot90(data, k=1, axes=(0, 1))
+        
+        # Update space directions for rotation
+        if 'space directions' in header:
+            sd = header['space directions']
+            # For 90 deg CCW: X becomes old Y, Y becomes -old X
+            new_sd = [
+                sd[1],  # new X = old Y
+                [-x for x in sd[0]],  # new Y = -old X
+                sd[2]   # Z unchanged
+            ]
+            header['space directions'] = new_sd
+        
+        # Save rotated data
+        nrrd.write(str(corrected_path), rotated_data, header)
+        print(f"  Rotated and saved to {corrected_path.name}")
+    else:
+        # Just copy
+        import shutil
+        shutil.copy2(nrrd_path, corrected_path)
+        print(f"  Copied to {corrected_path.name} (no correction applied)")
     
     return corrected_path
 
