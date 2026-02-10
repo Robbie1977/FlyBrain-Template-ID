@@ -6,3 +6,5 @@ __pycache__
 *.pyd
 venv/bin
 nrrd_output/*
+channels/*
+corrected/*

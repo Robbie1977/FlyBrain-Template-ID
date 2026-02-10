@@ -3,6 +3,14 @@
         "/^source venv/bin/activate && python convert_tiff_to_nrrd\\.py$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^source venv/bin/activate && python identify_template\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^source venv/bin/activate && python demonstrate_navis_usage\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }
