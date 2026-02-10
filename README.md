@@ -375,3 +375,65 @@ vx = navis.voxelize(
 - Verify channel separation (signal vs reference)
 
 This guide enables automated identification and processing of fly brain imaging data for integration with Virtual Fly Brain and other neuroanatomical resources.
+
+## CMTK Installation and Usage
+
+### Installing CMTK
+
+CMTK (Computational Morphometry Toolkit) is installed locally in the repository under the `CMTK/` directory. The installation was completed earlier in the development process. CMTK was obtained from https://www.nitrc.org/projects/cmtk.
+
+To use CMTK, ensure the executables in `CMTK/bin/` are accessible. You may need to set the library path:
+
+```bash
+export LD_LIBRARY_PATH=/path/to/repo/CMTK/bin:$LD_LIBRARY_PATH
+```
+
+### Template Files
+
+The repository includes pre-downloaded VFB template files in the root directory:
+
+- `JRC2018U_template.nrrd`: Standard JRC2018U brain template
+- `JRC2018U_template_lps.nrrd`: LPS-oriented version of JRC2018U (Left-Posterior-Superior coordinate system)
+- `JRCVNC2018U_template.nrrd`: VNC template
+
+**Note**: Both brain and VNC templates use LPS orientation as confirmed by VFB API queries.
+
+### Using CMTK for Alignment
+
+To align processed channel files to templates using CMTK:
+
+1. Ensure channel files are in NRRD format with LPS orientation (use `align_to_vfb_template.py` for conversion and orientation correction).
+
+2. Run the alignment script:
+
+```bash
+./align_cmtk.sh
+```
+
+This script performs:
+- Downloads templates (if not present)
+- Runs initial affine transformation
+- Performs multi-level registration
+- Outputs aligned NRRD files
+
+For manual usage:
+
+```bash
+# Set library path
+export LD_LIBRARY_PATH=./CMTK/bin:$LD_LIBRARY_PATH
+
+# Initial affine
+./CMTK/bin/make_initial_affine --principal-axes template.nrrd channel.nrrd initial.xform
+
+# Registration
+./CMTK/bin/registration --initial initial.xform --dofs 6,9,12 --auto-multi-levels 4 template.nrrd channel.nrrd registration
+
+# Reformat
+./CMTK/bin/reformatx -o aligned.nrrd template.nrrd channel.nrrd registration
+```
+
+### Troubleshooting
+
+- If executables fail, check LD_LIBRARY_PATH
+- Ensure input files have consistent coordinate systems
+- For orientation issues, verify LPS orientation in NRRD headers and use rotation scripts if needed
