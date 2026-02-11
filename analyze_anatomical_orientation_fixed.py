@@ -8,6 +8,7 @@ import numpy as np
 import nrrd
 from pathlib import Path
 from scipy.signal import find_peaks
+import sys
 
 def analyze_voxel_distribution(nrrd_path, name=""):
     """Analyze voxel value distributions and projections for anatomical orientation."""
@@ -165,6 +166,18 @@ def main():
     print("Fly Brain Anatomical Orientation Analysis")
     print("========================================")
 
+    # Check for command line arguments
+    if len(sys.argv) > 1:
+        # Analyze specific files from command line
+        for file_path in sys.argv[1:]:
+            file_path = Path(file_path)
+            if file_path.exists():
+                analyze_voxel_distribution(file_path, file_path.stem)
+            else:
+                print(f"File not found: {file_path}")
+        return
+
+    # Default behavior: Analyze templates and then samples
     # Analyze templates
     template_files = [
         Path("JRC2018U_template.nrrd"),
@@ -180,7 +193,7 @@ def main():
                 template_info[template_file.stem] = info
 
     # Analyze sample files from channels folder
-    channels_dir = Path("nrrd_output/channels")
+    channels_dir = Path("channels")
     if channels_dir.exists():
         sample_files = list(channels_dir.glob("*channel1.nrrd"))  # Use reference channel
 
