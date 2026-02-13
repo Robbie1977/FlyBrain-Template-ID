@@ -50,12 +50,12 @@
         "voxel_sizes": [
           0.5189161,
           0.5189161,
-          1
+          1.0
         ],
         "physical_size": [
           627.9,
           293.7,
-          174
+          174.0
         ]
       }
     },
@@ -95,7 +95,7 @@
       "suggested_changes": [
         "Axis 1: too many peaks (15 vs template 6) - possible axis swap",
         "Axis 2: too many peaks (10 vs template 3) - possible axis swap",
-        "X-axis highly asymmetric - possible 90° rotation needed"
+        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
       ],
       "suggested_rotations": {
         "x": 0,
@@ -125,12 +125,12 @@
         "voxel_sizes": [
           0.5189161,
           0.5189161,
-          1
+          1.0
         ],
         "physical_size": [
           627.9,
           293.7,
-          174
+          174.0
         ]
       }
     },
@@ -171,7 +171,7 @@
         "Axis 0: too many peaks (17 vs template 8) - possible axis swap",
         "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
         "Axis 2: too many peaks (7 vs template 3) - possible axis swap",
-        "X-axis highly asymmetric - possible 90° rotation needed"
+        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
       ],
       "suggested_rotations": {
         "x": 0,
@@ -201,12 +201,12 @@
         "voxel_sizes": [
           0.5189161,
           0.5189161,
-          1
+          1.0
         ],
         "physical_size": [
           627.9,
           293.7,
-          174
+          174.0
         ]
       }
     },
@@ -275,12 +275,12 @@
         "voxel_sizes": [
           0.5189161,
           0.5189161,
-          1
+          1.0
         ],
         "physical_size": [
           627.9,
           293.7,
-          174
+          174.0
         ]
       }
     },
@@ -352,8 +352,8 @@
           0.4
         ],
         "physical_size": [
-          264,
-          516,
+          264.0,
+          516.0,
           152.8
         ]
       }
@@ -414,8 +414,8 @@
           0.4
         ],
         "physical_size": [
-          264,
-          516,
+          264.0,
+          516.0,
           152.8
         ]
       }
@@ -628,7 +628,7 @@
       "suggested_changes": [
         "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
         "Axis 2: too many peaks (14 vs template 3) - possible axis swap",
-        "X-axis highly asymmetric - possible 90° rotation needed"
+        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
       ],
       "suggested_rotations": {
         "x": 0,
@@ -689,7 +689,7 @@
       "orientation_correct": false,
       "suggested_changes": [
         "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
-        "X-axis highly asymmetric - possible 90° rotation needed"
+        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
       ],
       "suggested_rotations": {
         "x": 0,
