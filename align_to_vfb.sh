@@ -15,6 +15,13 @@ if [ ! -f "JRC2018U_template.nrrd" ]; then
 fi
 
 
+# Download JRCVNC2018U template
+if [ ! -f "JRCVNC2018U_template.nrrd" ]; then
+    echo "Downloading JRCVNC2018U template..."
+    curl -o "JRCVNC2018U_template.nrrd" "https://v2.virtualflybrain.org/data/VFB/i/0020/0000/VFB_00200000/volume.nrrd"
+fi
+
+
 # Create parameter file for elastix (affine transform, limited to ~90 degrees rotation)
 cat > "elastix_params.txt" << EOF
 (Transform "AffineTransform")
@@ -38,8 +45,14 @@ echo "  Template: JRC2018U"
 echo "  Orientation: X-long (potentially rotated)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_channel1.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: X-long (potentially rotated))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_background.nrrd"
 FIXED="JRC2018U_template.nrrd"
 OUTPUT_DIR="Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_alignment"
 
@@ -52,28 +65,34 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_channel0.nrrd"
-RESULT="Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_signal.nrrd"
+RESULT="Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_signal_aligned_JRC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3 saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1
 echo "Aligning VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1..."
-echo "  Type: Brain"
-echo "  Template: JRC2018U"
+echo "  Type: VNC"
+echo "  Template: JRCVNC2018U"
 echo "  Orientation: Y-long (standard A-P axis)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1_channel1.nrrd"
-FIXED="JRC2018U_template.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: Y-long (standard A-P axis))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1_background.nrrd"
+FIXED="JRCVNC2018U_template.nrrd"
 OUTPUT_DIR="VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1_alignment"
 
 # Check if orientation correction is needed
@@ -85,28 +104,34 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1_channel0.nrrd"
-RESULT="VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1_signal.nrrd"
+RESULT="VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1_signal_aligned_JRCVNC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned VNC_SPR8AD.FD6DBD_FB1.1_nc82647_S1 saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3
 echo "Aligning VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3..."
-echo "  Type: Brain"
-echo "  Template: JRC2018U"
+echo "  Type: VNC"
+echo "  Template: JRCVNC2018U"
 echo "  Orientation: X-long (potentially rotated)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_channel1.nrrd"
-FIXED="JRC2018U_template.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: X-long (potentially rotated))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_background.nrrd"
+FIXED="JRCVNC2018U_template.nrrd"
 OUTPUT_DIR="VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_alignment"
 
 # Check if orientation correction is needed
@@ -118,17 +143,17 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_channel0.nrrd"
-RESULT="VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_signal.nrrd"
+RESULT="VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3_signal_aligned_JRCVNC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned VNC_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3 saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite
 echo "Aligning Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite..."
@@ -137,8 +162,14 @@ echo "  Template: JRC2018U"
 echo "  Orientation: Y-long (standard A-P axis)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_channel1.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: Y-long (standard A-P axis))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_background.nrrd"
 FIXED="JRC2018U_template.nrrd"
 OUTPUT_DIR="Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_alignment"
 
@@ -151,28 +182,34 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_channel0.nrrd"
-RESULT="Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_signal.nrrd"
+RESULT="Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_signal_aligned_JRC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1
 echo "Aligning VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1..."
-echo "  Type: Brain"
-echo "  Template: JRC2018U"
+echo "  Type: VNC"
+echo "  Template: JRCVNC2018U"
 echo "  Orientation: Y-long (standard A-P axis)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_channel1.nrrd"
-FIXED="JRC2018U_template.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: Y-long (standard A-P axis))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_background.nrrd"
+FIXED="JRCVNC2018U_template.nrrd"
 OUTPUT_DIR="VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_alignment"
 
 # Check if orientation correction is needed
@@ -184,17 +221,17 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_channel0.nrrd"
-RESULT="VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_signal.nrrd"
+RESULT="VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_signal_aligned_JRCVNC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned VNC_Fru11.12AD_FD6DBD_FB1.1_NC82_S1 saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1
 echo "Aligning Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1..."
@@ -203,8 +240,14 @@ echo "  Template: JRC2018U"
 echo "  Orientation: Y-long (standard A-P axis)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1_channel1.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: Y-long (standard A-P axis))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1_background.nrrd"
 FIXED="JRC2018U_template.nrrd"
 OUTPUT_DIR="Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1_alignment"
 
@@ -217,28 +260,34 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1_channel0.nrrd"
-RESULT="Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1_signal.nrrd"
+RESULT="Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1_signal_aligned_JRC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1 saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite
 echo "Aligning VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite..."
-echo "  Type: Brain"
-echo "  Template: JRC2018U"
+echo "  Type: VNC"
+echo "  Template: JRCVNC2018U"
 echo "  Orientation: X-long (potentially rotated)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_channel1.nrrd"
-FIXED="JRC2018U_template.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: X-long (potentially rotated))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_background.nrrd"
+FIXED="JRCVNC2018U_template.nrrd"
 OUTPUT_DIR="VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_alignment"
 
 # Check if orientation correction is needed
@@ -250,17 +299,17 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_channel0.nrrd"
-RESULT="VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_signal.nrrd"
+RESULT="VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite_signal_aligned_JRCVNC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite
 echo "Aligning BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite..."
@@ -269,8 +318,14 @@ echo "  Template: JRC2018U"
 echo "  Orientation: Y-long (standard A-P axis)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_channel1.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: Y-long (standard A-P axis))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_background.nrrd"
 FIXED="JRC2018U_template.nrrd"
 OUTPUT_DIR="BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_alignment"
 
@@ -283,17 +338,17 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_channel0.nrrd"
-RESULT="BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_signal.nrrd"
+RESULT="BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_signal_aligned_JRC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1
 echo "Aligning Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1..."
@@ -302,8 +357,14 @@ echo "  Template: JRC2018U"
 echo "  Orientation: Y-long (standard A-P axis)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_channel1.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: Y-long (standard A-P axis))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_background.nrrd"
 FIXED="JRC2018U_template.nrrd"
 OUTPUT_DIR="Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_alignment"
 
@@ -316,28 +377,34 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_channel0.nrrd"
-RESULT="Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_signal.nrrd"
+RESULT="Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1_signal_aligned_JRC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1 saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 # Align VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite
 echo "Aligning VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite..."
-echo "  Type: Brain"
-echo "  Template: JRC2018U"
+echo "  Type: VNC"
+echo "  Template: JRCVNC2018U"
 echo "  Orientation: X-long (potentially rotated)"
 echo "  Coordinate system: LPS (VFB standard)"
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_channel1.nrrd"
-FIXED="JRC2018U_template.nrrd"
+echo "  ⚠️  WARNING: Potential orientation mismatch!"
+echo "     Template orientation: LPS"
+echo "     Sample orientation: unknown (detected: X-long (potentially rotated))"
+echo "     This may cause elastix to perform unwanted initial rotations."
+echo "     Consider pre-aligning sample to match template orientation."
+echo "  Using detected background channel for alignment"
+
+MOVING="VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_background.nrrd"
+FIXED="JRCVNC2018U_template.nrrd"
 OUTPUT_DIR="VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_alignment"
 
 # Check if orientation correction is needed
@@ -349,17 +416,17 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
-# Apply transformation to signal channel (channel 0)
-SIGNAL="VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_channel0.nrrd"
-RESULT="VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_aligned_JRC2018U.nrrd"
+
+# Apply transformation to signal channel
+SIGNAL="VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_signal.nrrd"
+RESULT="VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite_signal_aligned_JRCVNC2018U.nrrd"
 
 transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
 
 # Rename result
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
-echo "Aligned VNC_SPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite saved as $RESULT"
-
+echo "Aligned signal channel saved as $RESULT"
 
 echo "Alignment complete!"
 echo "Aligned files are in VFB template coordinate space and ready for upload."

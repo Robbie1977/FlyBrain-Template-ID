@@ -195,11 +195,11 @@ def main():
     # Analyze sample files from channels folder
     channels_dir = Path("channels")
     if channels_dir.exists():
-        sample_files = list(channels_dir.glob("*channel1.nrrd"))  # Use reference channel
+        sample_files = list(channels_dir.glob("*_background.nrrd"))  # Use background channel
 
         print(f"\nFound {len(sample_files)} sample files to analyze")
 
-        for sample_file in sample_files[:3]:  # Analyze first 3 samples
+        for sample_file in sample_files:  # Analyze all samples
             # Find corresponding template
             if "VNC" in sample_file.name:
                 template_key = "JRCVNC2018U_template"

@@ -2,47 +2,53 @@
 
 This guide provides comprehensive information for identifying template images aligned to existing template spaces, converting common file types to navis loadable formats, and bridging to standard VFB templates using navis FlyBrains tools.
 
-## Recent Updates: TIFF File Processing
+## Recent Updates: Anatomical Orientation Analysis and PDF Reporting
 
-This repository now includes tools for processing TIFF microscopy files from fly brain imaging:
+This repository now includes advanced tools for anatomical orientation analysis and automated PDF report generation:
 
-### TIFF File Analysis
-- **analyze_tiffs.py**: Extracts metadata from TIFF files including dimensions, voxel sizes, and ImageJ metadata
-- **identify_template.py**: Matches TIFF files to Janelia/VFB template spaces based on physical dimensions
-- **convert_tiff_to_nrrd.py**: Converts TIFF stacks to NRRD format compatible with navis
-- **demonstrate_navis_usage.py**: Shows how to load and work with converted NRRD files
+### Anatomical Orientation Analysis
+- **analyze_anatomical_orientation_fixed.py**: Comprehensive analysis of voxel distributions and anatomical landmarks
+- **generate_orientation_pdf.py**: Automated PDF report generation with thumbnails and histograms
+- **orientation_analysis_report.pdf**: Generated report showing template analysis and sample orientation assessment
 
-### Processed Files
-The Images/ folder contains TIFF files that have been analyzed:
-- **Brain images**: ~600-650 μm extent, align to JRC2018U template
-- **VNC images**: ~380-390 μm extent, align to JRCVNC2018U template
-- **Multi-channel data**: 2 channels (signal + reference/NC82 marker)
-- **Converted NRRDs**: Available in nrrd_output/ directory
+### PDF Report Features
+- **Template Analysis**: Detailed characteristics of JRC2018U and JRCVNC2018U templates
+- **Sample Assessment**: Automatic template matching and orientation validation
+- **Visual Thumbnails**: Maximum intensity projections (X-Y, X-Z, Y-Z) for all processed images
+- **Histogram Analysis**: Projection histograms with template guide lines for orientation comparison
+- **Signal Channel Detection**: Automatic identification and visualization of associated signal channels
+- **Orientation Corrections**: Identification of needed rotations (90°, 180°) for proper LPS orientation
 
-### Quick Start for TIFF Processing
+### Processed Data Summary
+- **Templates Analyzed**: 4 template files (JRC2018U, JRC2018U_LPS, JRCVNC2018U, JRCVNC2018U_LPS)
+- **Samples Processed**: 10 background channel images from channels/ directory
+- **Signal Channels**: Corresponding signal channels automatically detected and analyzed
+- **Orientation Assessment**: Each sample evaluated against appropriate template with correction recommendations
+
+### Quick Start for Orientation Analysis
 ```bash
 # Set up environment
 python3.10 -m venv venv
 source venv/bin/activate
-pip install tifffile navis nrrd flybrains
+pip install numpy scipy matplotlib nrrd pynrrd reportlab
 
-# Analyze TIFF files
-python analyze_tiffs.py
+# Run anatomical orientation analysis
+python analyze_anatomical_orientation_fixed.py
 
-# Convert to NRRD
-python convert_tiff_to_nrrd.py
-
-# Load with navis
-python demonstrate_navis_usage.py
+# Generate comprehensive PDF report
+python generate_orientation_pdf.py
 ```
 
 ## Table of Contents
 1. [Template Identification](#template-identification)
 2. [Template Specifications](#template-specifications)
 3. [File Format Conversion](#file-format-conversion)
-4. [Navis FlyBrains Integration](#navis-flybrains-integration)
-5. [VFB Template Bridging](#vfb-template-bridging)
-6. [Automated Processing Workflow](#automated-processing-workflow)
+4. [Orientation Analysis](#orientation-analysis)
+5. [PDF Report Generation](#pdf-report-generation)
+6. [Navis FlyBrains Integration](#navis-flybrains-integration)
+7. [VFB Template Bridging](#vfb-template-bridging)
+8. [Automated Processing Workflow](#automated-processing-workflow)
+9. [CMTK Installation and Usage](#cmtk-installation-and-usage)
 
 ## Template Identification
 
@@ -213,6 +219,154 @@ neuron = navis.read_swc('file.swc')
 neuron = navis.heal_skeleton(neuron)
 ```
 
+## Orientation Analysis
+
+### Anatomical Landmark-Based Orientation Detection
+
+This repository includes a robust method for detecting fly brain image orientation using anatomical landmark identification through projection analysis. The approach analyzes signal distribution patterns along all three spatial axes to identify key brain structures.
+
+#### Key Features
+- **Anatomical Landmark Detection**: Identifies optic lobes, antennal lobes, mushroom bodies, and neuromere segmentation
+- **Signal Filtering**: Uses 75th percentile threshold to focus on dense neuropil regions
+- **Template Comparison**: Compares detected features against known template characteristics
+- **Automated Correction**: Recommends specific rotations (90°, 180°) for proper LPS orientation
+- **Multi-Template Support**: Handles both brain (JRC2018U) and VNC (JRCVNC2018U) samples
+
+#### Template Characteristics Identified
+
+**JRC2018U Brain Template:**
+- **X-Axis**: 8 bilateral peaks (optic lobes)
+- **Y-Axis**: 6 peaks showing anterior-posterior segmentation (antennal lobes, protocerebrum, SOG)
+- **Z-Axis**: 3 peaks showing dorsal-ventral layering (ventral, mid-brain, dorsal mushroom bodies)
+
+**JRCVNC2018U VNC Template:**
+- **X-Axis**: 2 symmetric peaks
+- **Y-Axis**: 5 peaks showing neuromere segmentation
+- **Z-Axis**: 1 broad peak (ganglion structure)
+
+#### Usage
+```python
+# Run comprehensive analysis
+python analyze_anatomical_orientation_fixed.py
+
+# This analyzes all templates and samples, identifying:
+# - Template characteristics and anatomical landmarks
+# - Sample-to-template matching
+# - Orientation correctness assessment
+# - Required correction rotations
+```
+
+#### Orientation Detection Rules
+1. **X-Y Swap Detection**: Multiple peaks on Y-axis + bilateral pattern on X-axis → 90° rotation needed
+2. **180° Flip Detection**: Anterior features appearing posterior → 180° Y-axis rotation needed
+3. **Z-Axis Bias**: Ventral signal instead of dorsal → 180° Z-axis rotation needed
+
+## PDF Report Generation
+
+### Comprehensive Visual Analysis Reports
+
+The repository includes automated PDF report generation that creates detailed visual analysis reports with thumbnails, histograms, and orientation assessments.
+
+#### Report Contents
+- **Title Page**: Project overview and generation date
+- **Template Analysis Section**:
+  - Physical dimensions and voxel resolution for each template
+  - Maximum intensity projection thumbnails (X-Y, X-Z, Y-Z views)
+  - Projection histograms showing anatomical landmark detection
+- **Sample Analysis Section**:
+  - Template chosen for each sample (brain vs VNC)
+  - Orientation assessment (correct/incorrect)
+  - Required changes (rotation specifications)
+  - Background channel thumbnails and histograms
+  - Signal channel thumbnails (automatically detected)
+  - Comparative histograms with template guide lines
+
+#### Generated Files
+- **orientation_analysis_report.pdf**: Main comprehensive report (typically 2-3MB)
+- **Analysis Summary**: Template characteristics, sample counts, orientation statistics
+
+#### Usage
+```python
+# Generate comprehensive PDF report
+python generate_orientation_pdf.py
+
+# Report includes:
+# - 4 template analyses (JRC2018U, JRC2018U_LPS, JRCVNC2018U, JRCVNC2018U_LPS)
+# - 10 sample analyses from channels/ directory
+# - Automatic signal channel detection and visualization
+# - Orientation correction recommendations
+```
+
+#### Dependencies
+```bash
+pip install numpy scipy matplotlib nrrd pynrrd reportlab
+```
+
+### Histogram-Based Orientation Correction
+
+This repository includes a robust, anatomy-agnostic method for correcting sample orientation using signal distribution patterns. Unlike feature-specific methods, this works even when anatomical landmarks are unknown.
+
+#### Key Features
+- **Quantitative**: Uses cross-correlation of signal histograms for confidence scoring
+- **Anatomy-Agnostic**: Works for any neuropil type without knowing specific features
+- **Validated**: Successfully tested on VNC samples with orientation issues
+
+#### Usage
+```python
+from vnc_pattern_analysis import analyze_vnc_anatomy, analyze_orientation_by_histogram_matching
+
+# Analyze template and sample
+template_bounds = analyze_vnc_anatomy("JRCVNC2018U_template.nrrd", is_template=True)
+sample_bounds = analyze_vnc_anatomy("sample.nrrd")
+
+# Get orientation corrections
+result = analyze_orientation_by_histogram_matching(
+    template_bounds, sample_bounds,
+    "JRCVNC2018U_template.nrrd", "sample.nrrd"
+)
+
+# Apply rotation if needed
+if result["rotation"]:
+    print(f"Apply: {result['rotation']}")
+```
+
+#### Intelligent Channel Detection
+
+The pipeline now includes histogram-based channel classification to automatically identify signal vs background/reference channels:
+
+**Background/Reference Channel Characteristics:**
+- Higher total signal volume (more voxels above threshold)
+- More uniform spatial distribution across the volume
+- Larger continuous signal regions
+- Higher maximum and mean signal intensities
+
+**Signal Channel Characteristics:**
+- More localized high-intensity regions
+- Lower total signal volume
+- May show bleed-through from background channels (low-level signal)
+
+**Usage:**
+```python
+from align_to_vfb_template import detect_channel_types_histogram
+
+# Analyze multi-channel data
+channel_info = detect_channel_types_histogram(data_4d)
+print(f"Background channel: {channel_info['background_channel']}")
+print(f"Signal channels: {channel_info['signal_channels']}")
+```
+
+**Benefits:**
+- Eliminates manual channel identification
+- Accounts for bleed-through between channels
+- More reliable than index-based assumptions
+- Provides quantitative validation of classification
+
+#### Validation Results
+Successfully corrected VNC sample orientation:
+- **Before**: Z-axis signal distribution backwards
+- **Correction**: 180° rotation around Y-axis
+- **After**: "No rotations needed - sample correctly oriented"
+
 ## Navis FlyBrains Integration
 
 ### Template Registration
@@ -351,11 +505,21 @@ vx = navis.voxelize(
    - Use appropriate navis loading functions
    - Handle multi-channel data (signal vs reference)
 
-5. **Transform to Target Space**
+5. **Check and Correct Orientation**
+   - Use anatomical landmark analysis to detect orientation issues
+   - Apply 180° rotations around appropriate axes if needed
+   - Validate against target template orientation
+
+6. **Generate Analysis Report**
+   - Run `analyze_anatomical_orientation_fixed.py` for comprehensive analysis
+   - Generate `generate_orientation_pdf.py` for visual PDF report
+   - Review orientation assessments and correction recommendations
+
+7. **Transform to Target Space**
    - Use `navis.xform_brain()` for coordinate transformation
    - Apply template-specific transformations
 
-6. **Validate and Export**
+8. **Validate and Export**
    - Check coordinate bounds
    - Ensure anatomical orientation (X longest, Z shortest)
    - Export in VFB-compatible format
@@ -365,7 +529,9 @@ vx = navis.voxelize(
 - **Missing Template Specs**: Fall back to flybrains defaults
 - **Coordinate Bounds**: Verify within template extents
 - **Memory Issues**: Process in chunks for large volumes
-- **Orientation**: Ensure proper anatomical orientation
+- **Orientation Issues**: Use anatomical landmark analysis to detect and correct 180°/90° rotations
+- **Template Matching**: Ensure source and target templates are anatomically compatible
+- **Channel Detection**: Use histogram-based analysis for automatic signal/background identification
 
 ### Quality Assurance
 
@@ -373,6 +539,8 @@ vx = navis.voxelize(
 - Validate voxelization parameters
 - Check for data loss during transformation
 - Verify channel separation (signal vs reference)
+- Review PDF analysis reports for orientation validation
+- Confirm anatomical landmark detection accuracy
 
 This guide enables automated identification and processing of fly brain imaging data for integration with Virtual Fly Brain and other neuroanatomical resources.
 

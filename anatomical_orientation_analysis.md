@@ -110,14 +110,39 @@ This document describes a method for automatically detecting the 3D orientation 
 - **Robust Detection**: More reliable identification of orientation landmarks
 - **Better Preservation**: Focuses on biologically meaningful dense structures
 
-### Implementation Status
+### PDF Report Generation
 
-- ✅ Signal filtering implemented in `analyze_anatomical_orientation_fixed.py`
-- ✅ Peak detection algorithm refined with distance constraints
-- ✅ Automated orientation correction ready for integration
-- ✅ Documentation updated with filtering methodology
+### Comprehensive Visual Analysis Reports
 
-This refined approach provides a solid foundation for accurate anatomical orientation detection in fly brain microscopy data.
+The analysis includes automated PDF report generation (`generate_orientation_pdf.py`) that creates detailed visual reports with thumbnails, histograms, and orientation assessments.
+
+#### Report Structure
+
+**Template Analysis Section:**
+- Physical dimensions and voxel resolution for each template
+- Maximum intensity projection thumbnails (X-Y, X-Z, Y-Z views)
+- Projection histograms showing anatomical landmark detection with peak identification
+
+**Sample Analysis Section:**
+- Automatic template selection (JRC2018U_LPS for brain, JRCVNC2018U for VNC)
+- Orientation assessment with correction recommendations
+- Background channel thumbnails and projection histograms
+- Signal channel thumbnails (automatically detected associated channels)
+- Comparative histograms with template guide lines overlaid in red
+
+#### Generated Output
+- **orientation_analysis_report.pdf**: Comprehensive visual report (2-3MB)
+- Includes analysis of 4 templates and 10 samples from the channels/ directory
+- Automatic signal channel detection and visualization
+- Clear orientation status and required corrections for each sample
+
+#### Usage
+```bash
+# Generate the comprehensive PDF report
+python generate_orientation_pdf.py
+```
+
+This provides a complete visual summary of the anatomical orientation analysis for documentation and quality assurance purposes.
 
 ## Orientation Detection Algorithm
 
@@ -258,7 +283,12 @@ def detect_orientation(nrrd_path):
 2. **3D Feature Detection**: Use 3D blob detection for complex structures
 3. **Multi-modal Integration**: Combine with other metadata (filenames, acquisition parameters)
 4. **Template Matching**: Direct correlation with template subregions
+5. **Automated Correction Application**: Implement automatic rotation application based on PDF recommendations
+6. **Batch Processing**: Extend PDF generation to handle larger datasets
+7. **Interactive Reports**: Add clickable thumbnails and detailed statistics
 
 ## Conclusion
 
-This anatomical feature-based approach provides robust automatic orientation detection for fly brain images, even with partial clipping or variable image quality. The method leverages the distinctive projection patterns of key brain structures to determine correct LPS orientation and can handle common microscopy orientation errors.
+This anatomical landmark-based approach provides robust automatic orientation detection for fly brain images, even with partial clipping or variable image quality. The method leverages the distinctive projection patterns of key brain structures to determine correct LPS orientation and can handle common microscopy orientation errors.
+
+The combination of signal filtering, peak detection, and comprehensive PDF reporting creates a complete pipeline for anatomical orientation analysis that is both accurate and user-friendly. The visual reports enable quick assessment of orientation status and provide clear guidance for any needed corrections.

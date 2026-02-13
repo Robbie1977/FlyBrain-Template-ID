@@ -147,11 +147,197 @@ def apply_orientation_correction(nrrd_path, analysis, output_dir=None):
     
     return corrected_path
 
+def detect_channel_types_histogram(data):
+    """
+    Detect signal vs background/reference channels using histogram analysis.
+    
+    Background channel characteristics:
+    - Higher total signal volume (more voxels above threshold)
+    - More uniform distribution across the volume
+    - Higher maximum values
+    - Larger continuous regions
+    
+    Signal channel characteristics:
+    - More localized high-intensity regions
+    - Lower total signal volume
+    - May have bleed-through from background (low-level signal)
+    """
+    n_channels = data.shape[3]
+    channel_stats = []
+    
+    print(f"\nAnalyzing {n_channels} channels for type detection:")
+    
+    for ch_idx in range(n_channels):
+        channel_data = data[..., ch_idx]
+        
+        # Calculate histogram statistics
+        hist, bin_edges = np.histogram(channel_data.flatten(), bins=256, range=(0, 255))
+        
+        # Find optimal threshold (Otsu-like method)
+        total_pixels = channel_data.size
+        best_threshold = 0
+        best_variance = 0
+        
+        for threshold in range(1, 255):
+            # Background pixels (above threshold)
+            bg_pixels = channel_data[channel_data > threshold]
+            fg_pixels = channel_data[channel_data <= threshold]
+            
+            if len(bg_pixels) == 0 or len(fg_pixels) == 0:
+                continue
+                
+            # Calculate variances
+            bg_variance = np.var(bg_pixels) if len(bg_pixels) > 1 else 0
+            fg_variance = np.var(fg_pixels) if len(fg_pixels) > 1 else 0
+            
+            # Weight by pixel counts
+            bg_weight = len(bg_pixels) / total_pixels
+            fg_weight = len(fg_pixels) / total_pixels
+            
+            total_variance = bg_weight * bg_variance + fg_weight * fg_variance
+            
+            if total_variance > best_variance:
+                best_variance = total_variance
+                best_threshold = threshold
+        
+        # Apply threshold and analyze signal regions
+        binary_mask = channel_data > best_threshold
+        signal_volume = np.sum(binary_mask)
+        signal_fraction = signal_volume / total_pixels
+        
+        # Analyze connected components to find largest continuous region
+        from scipy import ndimage
+        labeled_mask, num_regions = ndimage.label(binary_mask)
+        if num_regions > 0:
+            region_sizes = ndimage.sum(binary_mask, labeled_mask, range(1, num_regions + 1))
+            largest_region_size = np.max(region_sizes)
+            largest_region_fraction = largest_region_size / signal_volume if signal_volume > 0 else 0
+        else:
+            largest_region_size = 0
+            largest_region_fraction = 0
+        
+        # Calculate signal distribution uniformity
+        # More uniform = more like background/reference channel
+        if signal_volume > 0:
+            # Coefficient of variation of signal intensities
+            signal_intensities = channel_data[binary_mask]
+            cv_signal = np.std(signal_intensities) / np.mean(signal_intensities) if np.mean(signal_intensities) > 0 else float('inf')
+            
+            # Spatial uniformity (how evenly distributed across volume)
+            # Divide volume into 8 octants and check signal distribution
+            z_half = channel_data.shape[2] // 2
+            y_half = channel_data.shape[1] // 2
+            x_half = channel_data.shape[0] // 2
+            
+            octant_signals = [
+                np.sum(binary_mask[:x_half, :y_half, :z_half]),
+                np.sum(binary_mask[:x_half, :y_half, z_half:]),
+                np.sum(binary_mask[:x_half, y_half:, :z_half]),
+                np.sum(binary_mask[:x_half, y_half:, z_half:]),
+                np.sum(binary_mask[x_half:, :y_half, :z_half]),
+                np.sum(binary_mask[x_half:, :y_half, z_half:]),
+                np.sum(binary_mask[x_half:, y_half:, :z_half]),
+                np.sum(binary_mask[x_half:, y_half:, z_half:])
+            ]
+            
+            octant_cv = np.std(octant_signals) / np.mean(octant_signals) if np.mean(octant_signals) > 0 else float('inf')
+            uniformity_score = 1.0 / (1.0 + octant_cv)  # Higher = more uniform
+        else:
+            cv_signal = float('inf')
+            uniformity_score = 0
+        
+        # Calculate bleed-through score
+        # Background channels often appear as low-level signal in other channels
+        low_signal = np.sum((channel_data > best_threshold * 0.1) & (channel_data <= best_threshold))
+        bleed_through_fraction = low_signal / total_pixels
+        
+        stats = {
+            'channel_idx': ch_idx,
+            'threshold': best_threshold,
+            'signal_volume': signal_volume,
+            'signal_fraction': signal_fraction,
+            'largest_region_size': largest_region_size,
+            'largest_region_fraction': largest_region_fraction,
+            'cv_signal': cv_signal,
+            'uniformity_score': uniformity_score,
+            'bleed_through_fraction': bleed_through_fraction,
+            'max_value': np.max(channel_data),
+            'mean_signal': np.mean(channel_data[binary_mask]) if signal_volume > 0 else 0
+        }
+        
+        channel_stats.append(stats)
+        
+        print(f"  Channel {ch_idx}:")
+        print(f"    Signal fraction: {signal_fraction:.1f}")
+        print(f"    Largest region: {largest_region_fraction:.1f}")
+        print(f"    Uniformity: {uniformity_score:.1f}")
+        print(f"    Max value: {np.max(channel_data)}")
+        print(f"    Mean signal: {np.mean(channel_data[binary_mask]) if signal_volume > 0 else 0:.1f}")
+    
+    # Classify channels based on statistics
+    # Background/reference channel should have:
+    # - Highest signal volume
+    # - Most uniform distribution
+    # - Largest continuous region
+    # - Highest mean signal intensity
+    
+    if len(channel_stats) >= 2:
+        # Sort by signal volume (primary criterion)
+        sorted_by_volume = sorted(channel_stats, key=lambda x: x['signal_volume'], reverse=True)
+        
+        # Background is the one with highest signal volume
+        background_channel = sorted_by_volume[0]['channel_idx']
+        
+        # Signal is the remaining channel(s) with lower volume
+        signal_channels = [ch['channel_idx'] for ch in sorted_by_volume[1:]]
+        
+        # Validate classification using secondary criteria
+        bg_stats = sorted_by_volume[0]
+        signal_stats = sorted_by_volume[1] if len(sorted_by_volume) > 1 else None
+        
+        print("\nChannel Classification:")
+        print(f"  Background/Reference: Channel {background_channel}")
+        print(f"    Signal volume: {bg_stats['signal_volume']}")
+        print(f"    Uniformity: {bg_stats['uniformity_score']:.1f}")
+        
+        if signal_stats:
+            print(f"  Signal: Channel {signal_stats['channel_idx']}")
+            print(f"    Signal volume: {signal_stats['signal_volume']}")
+            print(f"    Uniformity: {signal_stats['uniformity_score']:.1f}")
+            
+            # Check if classification makes sense
+            volume_ratio = bg_stats['signal_volume'] / signal_stats['signal_volume'] if signal_stats['signal_volume'] > 0 else float('inf')
+            uniformity_ratio = bg_stats['uniformity_score'] / signal_stats['uniformity_score'] if signal_stats['uniformity_score'] > 0 else float('inf')
+            
+            print(f"    Volume ratio (BG/Signal): {volume_ratio:.1f}")
+            print(f"    Uniformity ratio (BG/Signal): {uniformity_ratio:.1f}")
+            
+            if volume_ratio > 2 and uniformity_ratio > 1.2:
+                print("  ✓ Classification appears correct")
+            else:
+                print("  ⚠️ Classification may need verification")
+        
+        return {
+            'background_channel': background_channel,
+            'signal_channels': signal_channels,
+            'channel_stats': channel_stats
+        }
+    else:
+        # Single channel - assume it's signal
+        print("  Single channel detected - assuming signal channel")
+        return {
+            'background_channel': None,
+            'signal_channels': [0],
+            'channel_stats': channel_stats
+        }
+
 def prepare_channels_for_alignment(nrrd_path, analysis_results, output_dir=None):
-    """Extract channels from multi-channel NRRD for alignment."""
+    """Extract and classify channels from multi-channel NRRD for alignment."""
     if output_dir is None:
         output_dir = nrrd_path.parent / "channels"
-        output_dir.mkdir(exist_ok=True)
+    
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True)
 
     print(f"\nPreparing channels from {nrrd_path.name}:")
 
@@ -164,44 +350,64 @@ def prepare_channels_for_alignment(nrrd_path, analysis_results, output_dir=None)
             print("  Not multi-channel data, skipping channel extraction")
             return None
 
+        # Detect channel types using histogram analysis
+        channel_classification = detect_channel_types_histogram(data)
+        background_channel = channel_classification['background_channel']
+        signal_channels = channel_classification['signal_channels']
+
         channels = []
         for channel_idx in range(data.shape[3]):
             channel_data = data[..., channel_idx]
 
+            # Determine channel type and naming
+            if channel_idx == background_channel:
+                channel_type = "background"
+                channel_name = f"{nrrd_path.stem}_background.nrrd"
+            elif channel_idx in signal_channels:
+                channel_type = "signal"
+                channel_name = f"{nrrd_path.stem}_signal.nrrd"
+            else:
+                channel_type = "unknown"
+                channel_name = f"{nrrd_path.stem}_channel{channel_idx}.nrrd"
+
             # Save individual channel
-            channel_path = output_dir / f"{nrrd_path.stem}_channel{channel_idx}.nrrd"
+            channel_path = output_dir / channel_name
 
             # Update header for single channel
-            channel_header = header.copy()
-            channel_header['dimension'] = 3
-            channel_header['sizes'] = channel_data.shape
-            
-            # Always set VFB coordinate system (LPS)
-            channel_header['space'] = 'left-posterior-superior'
-            if 'space origin' not in channel_header:
-                channel_header['space origin'] = [0, 0, 0]
-            
-            # Add orientation information if available
-            analysis = analysis_results.get(nrrd_path, {})
-            if analysis and 'orientation' in analysis:
-                # Add comment about orientation
-                channel_header['orientation'] = analysis['orientation']
+            channel_header = {
+                'type': 'uint8',
+                'dimension': 3,
+                'sizes': channel_data.shape,
+                # 'space directions': header['space directions'],
+                'encoding': 'gzip'
+                # 'space units': header.get('space units', ['microns', 'microns', 'microns'])
+                # 'space origin': header.get('space origin', [0.0, 0.0, 0.0]),
+                # 'space': header.get('space', 'left-posterior-superior')
+            }
 
             nrrd.write(str(channel_path), channel_data, channel_header)
             channels.append(channel_path)
 
-            print(f"  Saved channel {channel_idx} to {channel_path.name}")
-            if analysis and 'orientation' in analysis:
-                print(f"    Orientation: {analysis['orientation']}")
-                print(f"    Coordinate system: LPS (VFB standard)")
+            print(f"  Saved {channel_type} channel {channel_idx} to {channel_name}")
+            # if analysis and 'orientation' in analysis:
+            #     print(f"    Orientation: {analysis['orientation']}")
+            #     print(f"    Coordinate system: LPS (VFB standard)")
 
-        return channels
+        # Return channel information for alignment pipeline
+        result = {
+            'channels': channels,
+            'background_channel': background_channel,
+            'signal_channels': signal_channels,
+            'channel_classification': channel_classification
+        }
+        
+        return result
 
     except Exception as e:
         print(f"  Error preparing channels: {e}")
         return None
 
-def create_alignment_script(corrected_files, analysis_results):
+def create_alignment_script(corrected_files, analysis_results, channel_info=None):
     """Create alignment script based on NRRDtools align.sh approach."""
     script_content = """#!/bin/bash
 # Alignment script for fly brain images to VFB templates
@@ -264,6 +470,11 @@ EOF
 
         template = analysis['suggested_template']
         orientation = analysis['orientation']
+        
+        # Get channel information for this file
+        file_channel_info = channel_info.get(original_file, {}) if channel_info else {}
+        background_channel = file_channel_info.get('background_channel')
+        signal_channels = file_channel_info.get('signal_channels', [])
 
         script_content += f"""
 # Align {basename}
@@ -272,9 +483,18 @@ echo "  Type: {analysis['type']}"
 echo "  Template: {template}"
 echo "  Orientation: {orientation}"
 echo "  Coordinate system: LPS (VFB standard)"
+"""
 
-# Use NC82/reference channel (channel 1) for alignment
-MOVING="{basename}_channel1.nrrd"
+        # Use detected background channel for alignment, fallback to channel 1
+        if background_channel is not None:
+            moving_channel = f"{basename}_background.nrrd"
+            script_content += f'echo "  Using detected background channel for alignment"\n'
+        else:
+            moving_channel = f"{basename}_channel1.nrrd"
+            script_content += f'echo "  Using channel 1 (NC82) for alignment (fallback)"\n'
+
+        script_content += f"""
+MOVING="{moving_channel}"
 FIXED="{template}_template.nrrd"
 OUTPUT_DIR="{basename}_alignment"
 
@@ -287,6 +507,28 @@ fi
 # Run elastix alignment
 elastix -f "$FIXED" -m "$MOVING" -out "$OUTPUT_DIR" -p "elastix_params.txt"
 
+"""
+
+        # Apply transformation to signal channel(s)
+        if signal_channels:
+            for sig_ch in signal_channels:
+                signal_file = f"{basename}_signal.nrrd"
+                result_file = f"{basename}_signal_aligned_{template}.nrrd"
+                script_content += f"""
+# Apply transformation to signal channel
+SIGNAL="{signal_file}"
+RESULT="{basename}_signal_aligned_{template}.nrrd"
+
+transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameters.0.txt"
+
+# Rename result
+mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
+
+echo "Aligned signal channel saved as $RESULT"
+"""
+        else:
+            # Fallback to channel 0
+            script_content += f"""
 # Apply transformation to signal channel (channel 0)
 SIGNAL="{basename}_channel0.nrrd"
 RESULT="{basename}_aligned_{template}.nrrd"
@@ -297,7 +539,6 @@ transformix -in "$SIGNAL" -out "$OUTPUT_DIR" -tp "$OUTPUT_DIR/TransformParameter
 mv "$OUTPUT_DIR/result.nrrd" "$RESULT"
 
 echo "Aligned {basename} saved as $RESULT"
-
 """
 
     script_content += """
@@ -337,13 +578,15 @@ def main():
 
     # Prepare channels from corrected files
     all_channels = []
+    channel_info = {}
     for original_file, corrected_file in corrected_files.items():
-        channels = prepare_channels_for_alignment(corrected_file, analysis_results, channels_dir)
-        if channels:
-            all_channels.extend(channels)
+        channels_result = prepare_channels_for_alignment(corrected_file, analysis_results, channels_dir)
+        if channels_result:
+            all_channels.extend(channels_result.get('channels', []))
+            channel_info[original_file] = channels_result
 
     # Create alignment script
-    alignment_script = create_alignment_script(corrected_files, analysis_results)
+    alignment_script = create_alignment_script(corrected_files, analysis_results, channel_info)
     script_path = Path("align_to_vfb.sh")
     with open(script_path, 'w') as f:
         f.write(alignment_script)
