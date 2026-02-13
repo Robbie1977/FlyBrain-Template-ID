@@ -84,6 +84,8 @@
             height: 300px; width: auto;
             object-fit: contain;
             border: 3px solid #ccc; border-radius: 4px;
+            transition: transform 0.3s ease;
+            transform-origin: center center;
         }
         .thumb-item.sample img { border-color: #e74c3c; }
         .thumb-item.template img { border-color: #3498db; }
@@ -168,6 +170,53 @@
             display: inline-block; padding: 2px 8px; border-radius: 4px;
             font-size: 11px; font-weight: bold; background: #eaf2f8; color: #2980b9;
         }
+
+        /* Interactive Rotation Preview */
+        .rotation-toolbar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 12px; margin-bottom: 10px;
+            background: #eaf2f8; border-radius: 6px; border: 1px solid #d4e6f1;
+            flex-wrap: wrap; gap: 8px;
+        }
+        .rot-toolbar-group {
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        }
+        .rot-group-label {
+            font-size: 12px; font-weight: bold; color: #2c3e50; margin-right: 4px;
+        }
+        .rot-btn {
+            padding: 5px 10px; border: 1px solid #85929e; border-radius: 4px;
+            background: white; cursor: pointer; font-size: 12px; color: #2c3e50;
+            white-space: nowrap;
+        }
+        .rot-btn:hover { background: #d4e6f1; border-color: #3498db; }
+        .rot-btn:active { background: #aed6f1; }
+        .rot-btn-reset { background: #fdebd0; border-color: #e67e22; color: #e67e22; }
+        .rot-btn-reset:hover { background: #f5cba7; }
+        .rotation-preview-info {
+            font-size: 12px; color: #2980b9; font-weight: bold;
+            padding: 6px 12px; margin-bottom: 12px;
+            background: #fef9e7; border-left: 3px solid #f39c12; border-radius: 0 4px 4px 0;
+        }
+        .rotation-preview-info.identity {
+            background: #eafaf1; border-left-color: #27ae60; color: #27ae60;
+        }
+        .thumb-controls {
+            display: flex; gap: 4px; justify-content: center; margin-top: 6px;
+            align-items: center; flex-wrap: wrap;
+        }
+        .thumb-controls button {
+            padding: 3px 8px; font-size: 11px; border: 1px solid #bdc3c7;
+            border-radius: 3px; background: white; cursor: pointer; color: #2c3e50;
+        }
+        .thumb-controls button:hover { background: #ecf0f1; border-color: #3498db; }
+        .thumb-controls select {
+            padding: 3px 6px; font-size: 11px; border: 1px solid #bdc3c7;
+            border-radius: 3px; color: #2c3e50;
+        }
+        .view-label-highlight {
+            background: #d5f5e3 !important; border-color: #27ae60 !important;
+        }
     </style>
 </head>
 <body>
@@ -245,6 +294,26 @@
             <!-- Section 3: MIP Thumbnails (Background Channel vs Template) -->
             <div class="card" id="thumbnails-card">
                 <h2>Background Channel (Neuropil) vs Template <span class="channel-info" id="bg-channel-label"></span></h2>
+
+                <!-- Interactive Rotation Toolbar -->
+                <div class="rotation-toolbar">
+                    <div class="rot-toolbar-group">
+                        <span class="rot-group-label">3D Rotation:</span>
+                        <button class="rot-btn" onclick="applyPreviewRotation('x', 90)" title="X +90°: Swap Dorsal ↔ Lateral">X +90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('x', 270)" title="X -90°: Swap Dorsal ↔ Lateral (reverse)">X -90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('y', 90)" title="Y +90°: Swap Dorsal ↔ Anterior">Y +90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('y', 270)" title="Y -90°: Swap Dorsal ↔ Anterior (reverse)">Y -90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('z', 90)" title="Z +90°: Swap Lateral ↔ Anterior">Z +90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('z', 270)" title="Z -90°: Swap Lateral ↔ Anterior (reverse)">Z -90°</button>
+                    </div>
+                    <div class="rot-toolbar-group">
+                        <button class="rot-btn rot-btn-reset" onclick="resetPreview()">&#x27F2; Reset</button>
+                    </div>
+                </div>
+                <div class="rotation-preview-info identity" id="preview-status">
+                    Preview: no rotation &mdash; orientation matches current data
+                </div>
+
                 <div class="thumbnails-section" id="thumbnails-section"></div>
                 <div class="thumb-legend">
                     <span><span class="legend-swatch" style="border-color:#e74c3c;"></span> Sample (Background)</span>
@@ -331,8 +400,154 @@
         let savedData = {};
         let images = [];
         let currentBgChannel = 1;
+        let previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
+        let originalThumbnails = {};
 
         const $ = (id) => document.getElementById(id);
+
+        // === Rotation Preview Math ===
+        function mat3Mul(A, B) {
+            const R = [[0,0,0],[0,0,0],[0,0,0]];
+            for (let i = 0; i < 3; i++)
+                for (let j = 0; j < 3; j++)
+                    for (let k = 0; k < 3; k++)
+                        R[i][j] += A[i][k] * B[k][j];
+            return R;
+        }
+        function mat3Eq(A, B) {
+            for (let i = 0; i < 3; i++)
+                for (let j = 0; j < 3; j++)
+                    if (Math.round(A[i][j]) !== Math.round(B[i][j])) return false;
+            return true;
+        }
+        // Build rotation matrix matching apply_rotation.py np.rot90 convention:
+        // X: axes(0,1) axis2 invariant, Y: axes(0,2) axis1 invariant, Z: axes(1,2) axis0 invariant
+        function makeRotMatrix(axis, deg) {
+            const k = ((deg % 360) + 360) % 360;
+            if (k === 0) return [[1,0,0],[0,1,0],[0,0,1]];
+            const mats = {
+                x: { 90:[[0,-1,0],[1,0,0],[0,0,1]], 180:[[-1,0,0],[0,-1,0],[0,0,1]], 270:[[0,1,0],[-1,0,0],[0,0,1]] },
+                y: { 90:[[0,0,-1],[0,1,0],[1,0,0]], 180:[[-1,0,0],[0,1,0],[0,0,-1]], 270:[[0,0,1],[0,1,0],[-1,0,0]] },
+                z: { 90:[[1,0,0],[0,0,-1],[0,1,0]], 180:[[1,0,0],[0,-1,0],[0,0,-1]], 270:[[1,0,0],[0,0,1],[0,-1,0]] }
+            };
+            return mats[axis][k] || [[1,0,0],[0,1,0],[0,0,1]];
+        }
+        // Decompose rotation matrix into (rx, ry, rz) Euler angles matching apply_rotation.py order: X then Y then Z
+        function matrixToAngles(M) {
+            for (let rx of [0, 90, 180, 270])
+                for (let ry of [0, 90, 180, 270])
+                    for (let rz of [0, 90, 180, 270]) {
+                        const test = mat3Mul(makeRotMatrix('z', rz), mat3Mul(makeRotMatrix('y', ry), makeRotMatrix('x', rx)));
+                        if (mat3Eq(test, M)) return { x: rx, y: ry, z: rz };
+                    }
+            return { x: 0, y: 0, z: 0 };
+        }
+        // Determine which original thumbnail + CSS transform for each view slot
+        function computeViewMapping(R) {
+            const keys = ['x', 'y', 'z'];
+            const mapping = [];
+            for (let i = 0; i < 3; i++) {
+                let j = -1;
+                for (let c = 0; c < 3; c++) { if (R[i][c] !== 0) { j = c; break; } }
+                const sourceKey = keys[j];
+                const oldRem = [0,1,2].filter(x => x !== j); // vertical=k, horizontal=l in original image
+                const k = oldRem[0], l = oldRem[1];
+                const newRem = [0,1,2].filter(x => x !== i); // vertical=p, horizontal=q in display
+                const p = newRem[0], q = newRem[1];
+                let m = -1, mSign = 0; // new axis p → mSign * old axis m
+                for (let c = 0; c < 3; c++) { if (R[p][c] !== 0) { m = c; mSign = R[p][c]; break; } }
+                let n = -1, nSign = 0; // new axis q → nSign * old axis n
+                for (let c = 0; c < 3; c++) { if (R[q][c] !== 0) { n = c; nSign = R[q][c]; break; } }
+                let cssRot = 0, flipH = false, flipV = false;
+                if (m === k && n === l) {
+                    flipV = mSign < 0; flipH = nSign < 0;
+                } else if (m === l && n === k) {
+                    cssRot = 90;
+                    flipH = nSign > 0; // after 90° CW: screen_right = -old_k
+                    flipV = mSign < 0; // after 90° CW: screen_down = +old_l
+                }
+                mapping.push({ sourceKey, cssRot, flipH, flipV });
+            }
+            return mapping;
+        }
+        function applyPreviewRotation(axis, degrees) {
+            const R = makeRotMatrix(axis, degrees);
+            previewMatrix = mat3Mul(R, previewMatrix);
+            updateRotationPreview();
+        }
+        function resetPreview() {
+            previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
+            updateRotationPreview();
+        }
+        function syncPreviewFromDropdowns() {
+            const rx = parseInt($('rot-x').value) || 0;
+            const ry = parseInt($('rot-y').value) || 0;
+            const rz = parseInt($('rot-z').value) || 0;
+            previewMatrix = mat3Mul(makeRotMatrix('z', rz), mat3Mul(makeRotMatrix('y', ry), makeRotMatrix('x', rx)));
+            updateRotationPreview();
+        }
+        function updateRotationPreview() {
+            const angles = matrixToAngles(previewMatrix);
+            $('rot-x').value = angles.x;
+            $('rot-y').value = angles.y;
+            $('rot-z').value = angles.z;
+            const isIdentity = angles.x === 0 && angles.y === 0 && angles.z === 0;
+            const statusEl = $('preview-status');
+            if (statusEl) {
+                if (isIdentity) {
+                    statusEl.innerHTML = 'Preview: no rotation &mdash; orientation matches current data';
+                    statusEl.className = 'rotation-preview-info identity';
+                } else {
+                    statusEl.innerHTML = `Preview rotation: X=${angles.x}&deg; Y=${angles.y}&deg; Z=${angles.z}&deg; &mdash; click "Apply Rotation" to make permanent`;
+                    statusEl.className = 'rotation-preview-info';
+                }
+            }
+            const statusBadge = $('rotation-status');
+            const summaryDiv = $('rotation-summary');
+            if (statusBadge && summaryDiv) {
+                if (!isIdentity) {
+                    statusBadge.textContent = 'Preview Active';
+                    statusBadge.className = 'badge badge-warn';
+                    statusBadge.style.display = 'inline-block';
+                    summaryDiv.textContent = `Preview: X=${angles.x}° Y=${angles.y}° Z=${angles.z}°`;
+                } else {
+                    statusBadge.textContent = 'No Changes';
+                    statusBadge.className = 'badge badge-ok';
+                    statusBadge.style.display = 'inline-block';
+                    summaryDiv.textContent = 'No rotations pending';
+                }
+            }
+            // Enable/disable Apply Rotation based on preview
+            const applyBtn = $('apply-rotation');
+            if (applyBtn) applyBtn.disabled = isIdentity;
+            if (!originalThumbnails.x) return;
+            const mapping = computeViewMapping(previewMatrix);
+            const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
+            const origLabels = { x: 'Dorsal', y: 'Lateral', z: 'Anterior' };
+            for (let i = 0; i < 3; i++) {
+                const img = document.getElementById(`preview-sample-${i}`);
+                if (!img) continue;
+                const m = mapping[i];
+                const imgData = originalThumbnails[m.sourceKey];
+                if (imgData) img.src = `data:image/png;base64,${imgData}`;
+                const transforms = [];
+                if (m.flipH) transforms.push('scaleX(-1)');
+                if (m.flipV) transforms.push('scaleY(-1)');
+                if (m.cssRot !== 0) transforms.push(`rotate(${m.cssRot}deg)`);
+                img.style.transform = transforms.length ? transforms.join(' ') : 'none';
+                // Update label if view source changed
+                const labelEl = document.getElementById(`view-label-${i}`);
+                if (labelEl) {
+                    if (m.sourceKey === ['x','y','z'][i]) {
+                        labelEl.textContent = viewLabels[i];
+                        labelEl.classList.remove('view-label-highlight');
+                    } else {
+                        labelEl.textContent = `${viewLabels[i]} \u2190 was ${origLabels[m.sourceKey]}`;
+                        labelEl.classList.add('view-label-highlight');
+                    }
+                }
+            }
+        }
 
         // --- Load image list ---
         fetch('/api/images')
@@ -502,18 +717,30 @@
         }
 
         function renderThumbnails(data) {
+            // Store original thumbnails for the preview system
+            originalThumbnails = {
+                x: (data.original_thumbnails && data.original_thumbnails.x) || '',
+                y: (data.original_thumbnails && data.original_thumbnails.y) || '',
+                z: (data.original_thumbnails && data.original_thumbnails.z) || ''
+            };
+
             const section = $('thumbnails-section');
             section.innerHTML = '';
 
             const axisLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
+            const viewNames = ['Dorsal', 'Lateral', 'Anterior'];
             const keys = ['x', 'y', 'z'];
+            // In-plane rotation axis per view (the axis that keeps the projection axis invariant)
+            const inPlaneAxis = ['z', 'y', 'x'];
 
             keys.forEach((key, i) => {
                 const row = document.createElement('div');
                 row.className = 'thumb-row';
+                row.id = `thumb-row-${i}`;
 
                 const label = document.createElement('div');
                 label.className = 'axis-label';
+                label.id = `view-label-${i}`;
                 label.textContent = axisLabels[i];
                 row.appendChild(label);
 
@@ -523,7 +750,61 @@
                 if (data.original_thumbnails && data.original_thumbnails[key]) {
                     const sDiv = document.createElement('div');
                     sDiv.className = 'thumb-item sample';
-                    sDiv.innerHTML = `<p>Sample (Background)</p><img src="data:image/png;base64,${data.original_thumbnails[key]}" alt="Sample ${key}">`;
+
+                    const pLabel = document.createElement('p');
+                    pLabel.textContent = 'Sample (Background)';
+                    sDiv.appendChild(pLabel);
+
+                    const img = document.createElement('img');
+                    img.id = `preview-sample-${i}`;
+                    img.src = `data:image/png;base64,${data.original_thumbnails[key]}`;
+                    img.alt = `Sample ${key}`;
+                    sDiv.appendChild(img);
+
+                    // Per-view controls
+                    const controls = document.createElement('div');
+                    controls.className = 'thumb-controls';
+
+                    const rotateCW = document.createElement('button');
+                    rotateCW.textContent = '\u21BB Rotate CW';
+                    rotateCW.title = 'Rotate in-plane clockwise';
+                    rotateCW.addEventListener('click', () => applyPreviewRotation(inPlaneAxis[i], 90));
+                    controls.appendChild(rotateCW);
+
+                    const rotateCCW = document.createElement('button');
+                    rotateCCW.textContent = '\u21BA Rotate CCW';
+                    rotateCCW.title = 'Rotate in-plane counter-clockwise';
+                    rotateCCW.addEventListener('click', () => applyPreviewRotation(inPlaneAxis[i], 270));
+                    controls.appendChild(rotateCCW);
+
+                    // Swap dropdown
+                    const swapSelect = document.createElement('select');
+                    swapSelect.title = 'Swap this view with another';
+                    const defaultOpt = document.createElement('option');
+                    defaultOpt.value = '';
+                    defaultOpt.textContent = '\u21C5 Swap with\u2026';
+                    swapSelect.appendChild(defaultOpt);
+                    for (let j = 0; j < 3; j++) {
+                        if (j === i) continue;
+                        const opt = document.createElement('option');
+                        opt.value = `${i}-${j}`;
+                        opt.textContent = viewNames[j];
+                        swapSelect.appendChild(opt);
+                    }
+                    swapSelect.addEventListener('change', function() {
+                        if (!this.value) return;
+                        const [from, to] = this.value.split('-').map(Number);
+                        const pair = [from, to].sort();
+                        let axis;
+                        if (pair[0]===0 && pair[1]===1) axis = 'x';
+                        else if (pair[0]===0 && pair[1]===2) axis = 'y';
+                        else axis = 'z';
+                        applyPreviewRotation(axis, 90);
+                        this.value = '';
+                    });
+                    controls.appendChild(swapSelect);
+
+                    sDiv.appendChild(controls);
                     pair.appendChild(sDiv);
                 }
 
@@ -537,6 +818,9 @@
                 row.appendChild(pair);
                 section.appendChild(row);
             });
+
+            // Reset preview rotation when loading new image
+            resetPreview();
         }
 
         function renderSignal(data) {
@@ -575,27 +859,13 @@
 
         function renderCorrections(data) {
             const sr = data.suggested_rotations || { x: 0, y: 0, z: 0 };
-            $('rot-x').value = sr.x;
-            $('rot-y').value = sr.y;
-            $('rot-z').value = sr.z;
-
-            // Show rotation status
+            // If there's a suggested rotation, set it as the preview
             const hasSuggested = sr.x !== 0 || sr.y !== 0 || sr.z !== 0;
-            const statusBadge = $('rotation-status');
-            const summaryDiv = $('rotation-summary');
-
             if (hasSuggested) {
-                statusBadge.textContent = 'Unapplied';
-                statusBadge.className = 'badge badge-warn';
-                statusBadge.style.display = 'inline-block';
-                summaryDiv.textContent = `Suggested rotations: X=${sr.x}° Y=${sr.y}° Z=${sr.z}° — not yet applied`;
-            } else {
-                statusBadge.textContent = 'Applied';
-                statusBadge.className = 'badge badge-ok';
-                statusBadge.style.display = 'inline-block';
-                summaryDiv.textContent = 'No rotations pending — orientation appears correct';
+                // Apply suggested rotation to preview matrix
+                previewMatrix = mat3Mul(makeRotMatrix('z', sr.z), mat3Mul(makeRotMatrix('y', sr.y), makeRotMatrix('x', sr.x)));
+                updateRotationPreview();
             }
-
             // Disable Apply Suggested if no rotations needed
             $('apply-suggested').disabled = !hasSuggested;
         }
@@ -625,9 +895,13 @@
         $('apply-suggested').addEventListener('click', () => {
             if (!imageData || !imageData.suggested_rotations) return;
             const sr = imageData.suggested_rotations;
-            $('rot-x').value = sr.x;
-            $('rot-y').value = sr.y;
-            $('rot-z').value = sr.z;
+            previewMatrix = mat3Mul(makeRotMatrix('z', sr.z), mat3Mul(makeRotMatrix('y', sr.y), makeRotMatrix('x', sr.x)));
+            updateRotationPreview();
+        });
+
+        // Sync preview when dropdowns are manually changed
+        ['rot-x', 'rot-y', 'rot-z'].forEach(id => {
+            $(id).addEventListener('change', syncPreviewFromDropdowns);
         });
 
         $('apply-rotation').addEventListener('click', () => {
@@ -657,6 +931,7 @@
                 $('rot-x').value = 0;
                 $('rot-y').value = 0;
                 $('rot-z').value = 0;
+                previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
                 loadImage(currentImage, currentBgChannel);
             })
             .catch(() => {
