@@ -5,219 +5,738 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fly Brain Orientation Review</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .image-selector { margin-bottom: 20px; }
-        .image-display { display: flex; flex-wrap: wrap; gap: 20px; }
-        .thumbnail { border: 1px solid #ccc; padding: 10px; }
-        .thumbnail img { max-width: 150px; max-height: 150px; }
-        .controls { margin-top: 20px; }
-        .rotation-controls { display: flex; gap: 10px; margin-bottom: 10px; }
-        button { padding: 5px 10px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; color: #333; }
+
+        .header {
+            background: #2c3e50; color: white; padding: 15px 30px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .header h1 { font-size: 20px; }
+        .header .nav { display: flex; align-items: center; gap: 10px; }
+        .header button {
+            background: #3498db; color: white; border: none; padding: 6px 14px;
+            border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .header button:hover { background: #2980b9; }
+        .header button:disabled { background: #7f8c8d; cursor: default; }
+        .header select {
+            padding: 6px 10px; border-radius: 4px; border: none; font-size: 13px;
+            max-width: 400px;
+        }
+        .header .progress { font-size: 12px; opacity: 0.8; }
+
+        .container { max-width: 1400px; margin: 20px auto; padding: 0 20px; }
+
+        .loading {
+            text-align: center; padding: 60px; color: #7f8c8d; font-size: 16px;
+        }
+        .loading .spinner {
+            display: inline-block; width: 30px; height: 30px;
+            border: 3px solid #ddd; border-top-color: #3498db;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .card {
+            background: white; border-radius: 8px; padding: 20px;
+            margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            font-size: 16px; color: #2c3e50; margin-bottom: 12px;
+            padding-bottom: 8px; border-bottom: 2px solid #ecf0f1;
+        }
+        .card h3 { font-size: 14px; color: #555; margin-bottom: 8px; }
+
+        .badge {
+            display: inline-block; padding: 3px 10px; border-radius: 12px;
+            font-size: 11px; font-weight: bold; text-transform: uppercase;
+        }
+        .badge-ok { background: #d5f5e3; color: #27ae60; }
+        .badge-warn { background: #fdebd0; color: #e67e22; }
+
+        .info-grid {
+            display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;
+            font-size: 13px; margin-bottom: 12px;
+        }
+        .info-grid .label { color: #7f8c8d; font-weight: bold; }
+        .info-grid .value { color: #2c3e50; }
+
+        /* Thumbnails: one axis per row, sample + template side by side, large */
+        .thumbnails-section { margin-bottom: 16px; }
+        .thumb-row {
+            margin-bottom: 20px; padding: 12px; background: #fafafa;
+            border-radius: 6px; border: 1px solid #ecf0f1;
+        }
+        .thumb-row .axis-label {
+            font-size: 14px; font-weight: bold; color: #2c3e50; margin-bottom: 10px;
+            text-align: center; background: #ecf0f1; padding: 6px; border-radius: 4px;
+        }
+        .thumb-pair {
+            display: flex; gap: 16px; justify-content: center; align-items: flex-start;
+        }
+        .thumb-item { text-align: center; flex: 1; max-width: 50%; }
+        .thumb-item p {
+            font-size: 12px; margin-bottom: 6px; color: #7f8c8d; font-weight: bold;
+        }
+        .thumb-item img {
+            width: 100%; height: auto; border: 3px solid #ccc; border-radius: 4px;
+        }
+        .thumb-item.sample img { border-color: #e74c3c; }
+        .thumb-item.template img { border-color: #3498db; }
+        .thumb-legend {
+            display: flex; gap: 16px; justify-content: center; margin-top: 10px;
+            font-size: 12px; color: #7f8c8d;
+        }
+        .thumb-legend span { display: flex; align-items: center; gap: 4px; }
+        .legend-swatch {
+            display: inline-block; width: 16px; height: 16px;
+            border: 3px solid; border-radius: 2px;
+        }
+
+        /* Signal channel: 3 across since these are smaller/supplementary */
+        .signal-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+            margin-bottom: 8px;
+        }
+        .signal-item { text-align: center; }
+        .signal-item p { font-size: 11px; color: #7f8c8d; font-weight: bold; margin-bottom: 4px; }
+        .signal-item img {
+            width: 100%; height: auto; border: 2px solid #8e44ad; border-radius: 4px;
+        }
+
+        .histogram-container { text-align: center; margin: 16px 0; }
+        .histogram-container img {
+            max-width: 100%; border: 1px solid #ecf0f1; border-radius: 4px;
+        }
+
+        .changes-list { list-style: none; margin: 8px 0; }
+        .changes-list li {
+            padding: 6px 10px; margin-bottom: 4px; background: #fef9e7;
+            border-left: 3px solid #f39c12; border-radius: 0 4px 4px 0;
+            font-size: 13px;
+        }
+        .changes-list.ok li {
+            background: #eafaf1; border-left-color: #27ae60;
+        }
+
+        .controls-row {
+            display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        .control-group label { font-size: 12px; font-weight: bold; color: #7f8c8d; }
+        .control-group select,
+        .control-group input {
+            padding: 6px 10px; border: 1px solid #bdc3c7; border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .btn {
+            padding: 8px 18px; border: none; border-radius: 4px;
+            cursor: pointer; font-size: 13px; font-weight: bold;
+        }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-primary:hover { background: #2980b9; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-success:hover { background: #1e8449; }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn-warning:hover { background: #d68910; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn:disabled { opacity: 0.5; cursor: default; }
+
+        .btn-row { display: flex; gap: 10px; margin-top: 12px; }
+
+        .peak-table {
+            width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0;
+        }
+        .peak-table th, .peak-table td {
+            padding: 6px 10px; border: 1px solid #ecf0f1; text-align: center;
+        }
+        .peak-table th { background: #f8f9fa; color: #555; font-weight: bold; }
+        .peak-table .mismatch { background: #fef9e7; color: #e67e22; }
+
+        .template-correct-row {
+            display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px;
+        }
+
+        .channel-info {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: bold; background: #eaf2f8; color: #2980b9;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="header">
         <h1>Fly Brain Orientation Review</h1>
-
-        <div class="image-selector">
-            <button id="prev-image">&lt; Prev</button>
-            <label for="image-select">Select Image:</label>
+        <div class="nav">
+            <button id="prev-image">&larr; Prev</button>
             <select id="image-select"></select>
-            <button id="next-image">Next &gt;</button>
+            <button id="next-image">Next &rarr;</button>
+            <span class="progress" id="progress-text"></span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="loading" class="loading" style="display:none;">
+            <div class="spinner"></div>
+            <div>Loading image analysis...</div>
         </div>
 
-        <div id="image-display" class="image-display">
-            <!-- Image data will be loaded here -->
-        </div>
-
-        <div class="controls">
-            <h2>Manual Rotation</h2>
-            <div class="rotation-controls">
-                <label>X-axis: <input type="number" id="rot-x" value="0" step="90" min="0" max="270">°</label>
-                <label>Y-axis: <input type="number" id="rot-y" value="0" step="90" min="0" max="270">°</label>
-                <label>Z-axis: <input type="number" id="rot-z" value="0" step="90" min="0" max="270">°</label>
+        <div id="content" style="display:none;">
+            <!-- Section 1: Sample & Template Info -->
+            <div class="card" id="info-card">
+                <h2>Image Information</h2>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+                    <div>
+                        <h3>Sample</h3>
+                        <div class="info-grid" id="sample-info"></div>
+                        <div class="controls-row" style="margin-top:8px;">
+                            <div class="control-group">
+                                <label>Background Channel</label>
+                                <select id="bg-channel-select">
+                                    <option value="0">Channel 0</option>
+                                    <option value="1" selected>Channel 1</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" id="swap-channel">Reload with Selected Channel</button>
+                        </div>
+                    </div>
+                    <div>
+                        <h3>Template</h3>
+                        <div class="controls-row" style="margin-bottom:8px;">
+                            <div class="control-group">
+                                <label>Detected Template</label>
+                                <select id="template-select">
+                                    <option value="JRC2018U_template_lps">JRC2018U_template_lps</option>
+                                    <option value="JRC2018U_template">JRC2018U_template</option>
+                                    <option value="JRCVNC2018U_template">JRCVNC2018U_template</option>
+                                    <option value="JRCVNC2018U_template_lps">JRCVNC2018U_template_lps</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="info-grid" id="template-info"></div>
+                        <div class="template-correct-row">
+                            <input type="checkbox" id="template-correct">
+                            <label for="template-correct">Template assignment is correct</label>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <button id="apply-rotation">Apply Rotation</button>
-            <button id="save-changes">Save Changes</button>
+
+            <!-- Section 2: Orientation Assessment -->
+            <div class="card" id="orientation-card">
+                <h2>Orientation Assessment <span id="orientation-badge"></span></h2>
+                <h3>Peak Comparison (Sample vs Template)</h3>
+                <table class="peak-table" id="peak-table">
+                    <thead>
+                        <tr><th>Axis</th><th>Sample Peaks</th><th>Template Peaks</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <h3 style="margin-top:12px;">Suggested Changes</h3>
+                <ul class="changes-list" id="changes-list"></ul>
+            </div>
+
+            <!-- Section 3: MIP Thumbnails (Background Channel vs Template) -->
+            <div class="card" id="thumbnails-card">
+                <h2>Background Channel (Neuropil) vs Template <span class="channel-info" id="bg-channel-label"></span></h2>
+                <div class="thumbnails-section" id="thumbnails-section"></div>
+                <div class="thumb-legend">
+                    <span><span class="legend-swatch" style="border-color:#e74c3c;"></span> Sample (Background)</span>
+                    <span><span class="legend-swatch" style="border-color:#3498db;"></span> Template</span>
+                </div>
+            </div>
+
+            <!-- Section 4: Signal Channel -->
+            <div class="card" id="signal-card" style="display:none;">
+                <h2>Signal Channel (Neuron) <span class="channel-info" id="sig-channel-label"></span></h2>
+                <div class="signal-grid" id="signal-grid"></div>
+                <p style="font-size:11px; color:#7f8c8d; margin-top:6px;">
+                    Signal channel shown for visual verification only. Alignment is calculated from the background channel.
+                </p>
+            </div>
+
+            <!-- Section 5: Histograms -->
+            <div class="card" id="histogram-card">
+                <h2>Projection Analysis (Histograms)</h2>
+                <div class="histogram-container">
+                    <img id="histogram-img" alt="Histogram comparison">
+                </div>
+            </div>
+
+            <!-- Section 6: Manual Corrections -->
+            <div class="card" id="correction-card">
+                <h2>Manual Corrections <span id="rotation-status" class="badge badge-warn" style="display:none;">Unapplied</span></h2>
+                <div id="rotation-summary" style="font-size:12px; color:#7f8c8d; margin-bottom:12px;"></div>
+                <div class="controls-row">
+                    <div class="control-group">
+                        <label>X-axis Rotation</label>
+                        <select id="rot-x">
+                            <option value="0">0&deg;</option>
+                            <option value="90">90&deg;</option>
+                            <option value="180">180&deg;</option>
+                            <option value="270">270&deg;</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>Y-axis Rotation</label>
+                        <select id="rot-y">
+                            <option value="0">0&deg;</option>
+                            <option value="90">90&deg;</option>
+                            <option value="180">180&deg;</option>
+                            <option value="270">270&deg;</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>Z-axis Rotation</label>
+                        <select id="rot-z">
+                            <option value="0">0&deg;</option>
+                            <option value="90">90&deg;</option>
+                            <option value="180">180&deg;</option>
+                            <option value="270">270&deg;</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-warning" id="apply-suggested">Apply Suggested</button>
+                    <button class="btn btn-primary" id="apply-rotation">Apply Rotation</button>
+                    <button class="btn btn-danger" id="reset-rotation">Reset to Original</button>
+                </div>
+                <p style="font-size:11px; color:#7f8c8d; margin-top:4px;">
+                    Applying a rotation modifies the original TIFF (both channels) and re-analyzes. Thumbnails and histograms will update.
+                </p>
+                <p style="font-size:11px; color:#7f8c8d; margin-top:2px;">
+                    <strong>Reset to Original:</strong> Restores the image to its original orientation before any rotations were applied.
+                </p>
+            </div>
+
+            <!-- Section 7: Approve -->
+            <div class="card" id="approve-card">
+                <h2>Review &amp; Approve</h2>
+                <div class="btn-row">
+                    <button class="btn btn-success" id="save-changes">Save Assessment</button>
+                    <button class="btn btn-success" id="approve-cmtk" disabled>Approve for CMTK Alignment</button>
+                </div>
+                <p id="approve-status" style="font-size:12px; color:#7f8c8d; margin-top:8px;"></p>
+            </div>
         </div>
     </div>
 
     <script>
         let currentImage = null;
         let imageData = null;
-
+        let savedData = {};
         let images = [];
+        let currentBgChannel = 1;
 
-        // Load image list
+        const $ = (id) => document.getElementById(id);
+
+        // --- Load image list ---
         fetch('/api/images')
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
                 images = data;
-                const select = document.getElementById('image-select');
-                images.forEach(image => {
-                    const option = document.createElement('option');
-                    option.value = image;
-                    option.textContent = image;
-                    select.appendChild(option);
+                const select = $('image-select');
+                images.forEach(img => {
+                    const opt = document.createElement('option');
+                    opt.value = img;
+                    opt.textContent = img;
+                    select.appendChild(opt);
                 });
-                if (images.length > 0) {
-                    loadImage(images[0]);
-                }
+                return fetch('/api/saved').then(r => r.json());
+            })
+            .then(saved => {
+                savedData = saved;
+                updateProgress();
+                if (images.length > 0) loadImage(images[0]);
             });
 
-        document.getElementById('image-select').addEventListener('change', (e) => {
-            loadImage(e.target.value);
-        });
+        // --- Navigation ---
+        $('image-select').addEventListener('change', e => loadImage(e.target.value));
 
-        document.getElementById('prev-image').addEventListener('click', () => {
-            const currentIndex = images.indexOf(currentImage);
-            if (currentIndex > 0) {
-                loadImage(images[currentIndex - 1]);
-                document.getElementById('image-select').value = images[currentIndex - 1];
+        $('prev-image').addEventListener('click', () => {
+            const idx = images.indexOf(currentImage);
+            if (idx > 0) {
+                $('image-select').value = images[idx - 1];
+                loadImage(images[idx - 1]);
             }
         });
 
-        document.getElementById('next-image').addEventListener('click', () => {
-            const currentIndex = images.indexOf(currentImage);
-            if (currentIndex < images.length - 1) {
-                loadImage(images[currentIndex + 1]);
-                document.getElementById('image-select').value = images[currentIndex + 1];
+        $('next-image').addEventListener('click', () => {
+            const idx = images.indexOf(currentImage);
+            if (idx < images.length - 1) {
+                $('image-select').value = images[idx + 1];
+                loadImage(images[idx + 1]);
             }
         });
 
-        function loadImage(imageName) {
+        function updateProgress() {
+            const total = images.length;
+            const reviewed = Object.values(savedData).filter(d => d.manual_corrections).length;
+            const approved = Object.values(savedData).filter(d => d.approved).length;
+            $('progress-text').textContent = `${reviewed}/${total} reviewed, ${approved} approved`;
+        }
+
+        // --- Load Image ---
+        function loadImage(imageName, bgChannel) {
             currentImage = imageName;
-            fetch(`/api/image?name=${encodeURIComponent(imageName)}`)
-                .then(response => response.json())
+            if (bgChannel === undefined) {
+                // Check if we have a saved bg_channel for this image
+                const saved = savedData[imageName];
+                bgChannel = (saved && saved.manual_corrections) ? saved.manual_corrections.background_channel : 1;
+            }
+            currentBgChannel = bgChannel;
+            $('bg-channel-select').value = bgChannel;
+
+            $('content').style.display = 'none';
+            $('loading').style.display = 'block';
+
+            fetch(`/api/image?name=${encodeURIComponent(imageName)}&bg_channel=${bgChannel}`)
+                .then(r => r.json())
                 .then(data => {
                     imageData = data;
-                    displayImage(data);
-                    loadSavedData(imageName);
+                    $('loading').style.display = 'none';
+                    $('content').style.display = 'block';
+                    renderAll(data);
+                    applySavedOverrides(imageName);
+                })
+                .catch(err => {
+                    $('loading').innerHTML = '<div style="color:#e74c3c;">Error loading image. Check server console.</div>';
+                    console.error(err);
                 });
         }
 
-        function loadSavedData(imageName) {
-            fetch('/api/saved')
-                .then(response => response.json())
-                .then(saved => {
-                    const data = saved[imageName];
-                    if (data) {
-                        document.getElementById('template-select').value = data.template || imageData.template;
-                        document.getElementById('template-correct').checked = data.template_correct;
-                        document.getElementById('rot-x').value = data.rotations.x || 0;
-                        document.getElementById('rot-y').value = data.rotations.y || 0;
-                        document.getElementById('rot-z').value = data.rotations.z || 0;
-                    }
-                });
+        function applySavedOverrides(imageName) {
+            const saved = savedData[imageName];
+            if (!saved || !saved.manual_corrections) return;
+            const mc = saved.manual_corrections;
+            $('template-select').value = mc.template;
+            $('template-correct').checked = mc.template_correct;
+            $('rot-x').value = mc.rotations.x || 0;
+            $('rot-y').value = mc.rotations.y || 0;
+            $('rot-z').value = mc.rotations.z || 0;
+            if (saved.approved) {
+                $('approve-status').textContent = 'Approved for CMTK at ' + saved.approved_at;
+                $('approve-cmtk').disabled = true;
+            }
         }
 
-        function displayImage(data) {
-            console.log('displayImage called with data:', data);
-            const display = document.getElementById('image-display');
-            display.innerHTML = '';
+        // --- Render ---
+        function renderAll(data) {
+            renderInfo(data);
+            renderOrientation(data);
+            renderThumbnails(data);
+            renderSignal(data);
+            renderHistogram(data);
+            renderCorrections(data);
+            renderApproval();
+        }
 
-            // Template info
-            const templateDiv = document.createElement('div');
-            templateDiv.className = 'thumbnail';
-            templateDiv.innerHTML = `
-                <h3>Template</h3>
-                <select id="template-select">
-                    <option value="JRC2018U_template_lps">JRC2018U_template_lps</option>
-                    <option value="JRC2018U_template">JRC2018U_template</option>
-                    <option value="JRCVNC2018U_template">JRCVNC2018U_template</option>
-                    <option value="JRCVNC2018U_template_lps">JRCVNC2018U_template_lps</option>
-                </select>
-                <p>Is this correct? <input type="checkbox" id="template-correct" ${data.template_correct ? 'checked' : ''}></p>
+        function renderInfo(data) {
+            const si = data.sample_info;
+            $('sample-info').innerHTML = `
+                <span class="label">Name:</span><span class="value">${data.name}</span>
+                <span class="label">Dimensions:</span><span class="value">${si.shape.join(' &times; ')}</span>
+                <span class="label">Channels:</span><span class="value">${si.num_channels}</span>
+                <span class="label">Background Ch:</span><span class="value">Channel ${si.background_channel}</span>
+                <span class="label">Voxel Size:</span><span class="value">${si.voxel_sizes.map(v => v.toFixed(3)).join(' &times; ')} &mu;m</span>
+                <span class="label">Physical Size:</span><span class="value">${si.physical_size.join(' &times; ')} &mu;m</span>
             `;
-            document.getElementById('template-select').value = data.template;
-            display.appendChild(templateDiv);
 
-            // Comparison thumbnails
-            const axisLabels = ['X-Y (Dorsal)', 'X-Z (Lateral)', 'Y-Z (Anterior)'];
-            const axisKeys = ['x', 'y', 'z'];
+            $('template-select').value = data.template;
+            const ti = data.template_info;
+            if (ti && ti.shape) {
+                $('template-info').innerHTML = `
+                    <span class="label">Dimensions:</span><span class="value">${ti.shape.join(' &times; ')} voxels</span>
+                    <span class="label">Voxel Size:</span><span class="value">${ti.voxel_sizes.map(v => v.toFixed(3)).join(' &times; ')} &mu;m</span>
+                    <span class="label">Physical Size:</span><span class="value">${ti.physical_size.join(' &times; ')} &mu;m</span>
+                `;
+            } else {
+                $('template-info').innerHTML = '<span class="value" style="color:#e74c3c;">Template not found</span>';
+            }
 
-            axisLabels.forEach((label, i) => {
-                console.log(`Creating thumbnail for ${label}, axis ${axisKeys[i]}, has data:`, !!data.original_thumbnails[axisKeys[i]]);
-                const div = document.createElement('div');
-                div.className = 'thumbnail';
+            $('template-correct').checked = data.template_correct;
+            $('bg-channel-label').textContent = `Channel ${data.background_channel}`;
+            $('sig-channel-label').textContent = `Channel ${data.num_channels > 1 ? (1 - data.background_channel) : 'N/A'}`;
+        }
 
-                const h3 = document.createElement('h3');
-                h3.textContent = label;
-                div.appendChild(h3);
+        function renderOrientation(data) {
+            const badge = $('orientation-badge');
+            badge.innerHTML = data.template_correct
+                ? '<span class="badge badge-ok">Correct</span>'
+                : '<span class="badge badge-warn">Changes Suggested</span>';
 
-                const flexDiv = document.createElement('div');
-                flexDiv.style.display = 'flex';
-                flexDiv.style.gap = '10px';
-                flexDiv.style.alignItems = 'center';
+            const tbody = $('peak-table').querySelector('tbody');
+            tbody.innerHTML = '';
+            const axisNames = ['X (Left-Right)', 'Y (Anterior-Posterior)', 'Z (Dorsal-Ventral)'];
+            const ps = data.peak_summary;
+            for (const axis of [0, 1, 2]) {
+                const entry = ps[axis] || ps[String(axis)];
+                const sp = entry.sample_peaks;
+                const tp = entry.template_peaks;
+                const mismatch = tp > 0 && (sp / tp > 2 || sp / tp < 0.3);
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>${axisNames[axis]}</td><td class="${mismatch ? 'mismatch' : ''}">${sp}</td><td>${tp}</td>`;
+                tbody.appendChild(row);
+            }
 
-                // Sample
-                const sampleDiv = document.createElement('div');
-                sampleDiv.style.textAlign = 'center';
-                const sampleP = document.createElement('p');
-                sampleP.textContent = 'Sample';
-                sampleDiv.appendChild(sampleP);
-                const sampleImg = document.createElement('img');
-                sampleImg.src = `data:image/png;base64,${data.original_thumbnails[axisKeys[i]]}`;
-                sampleImg.alt = `Sample ${axisKeys[i]}`;
-                sampleImg.style.border = '1px solid red';
-                sampleDiv.appendChild(sampleImg);
-                flexDiv.appendChild(sampleDiv);
+            const list = $('changes-list');
+            list.innerHTML = '';
+            const changes = data.changes_needed || [];
+            if (changes.length === 0) {
+                list.className = 'changes-list ok';
+                const li = document.createElement('li');
+                li.textContent = 'No orientation changes needed - orientation appears correct.';
+                list.appendChild(li);
+            } else {
+                list.className = 'changes-list';
+                changes.forEach(c => {
+                    const li = document.createElement('li');
+                    li.textContent = c;
+                    list.appendChild(li);
+                });
+            }
+        }
 
-                // Template
-                const templateDiv = document.createElement('div');
-                templateDiv.style.textAlign = 'center';
-                const templateP = document.createElement('p');
-                templateP.textContent = 'Template';
-                templateDiv.appendChild(templateP);
-                const templateImg = document.createElement('img');
-                templateImg.src = `data:image/png;base64,${data.suggested_thumbnails[axisKeys[i]]}`;
-                templateImg.alt = `Template ${axisKeys[i]}`;
-                templateImg.style.border = '1px solid blue';
-                templateDiv.appendChild(templateImg);
-                flexDiv.appendChild(templateDiv);
+        function renderThumbnails(data) {
+            const section = $('thumbnails-section');
+            section.innerHTML = '';
 
-                div.appendChild(flexDiv);
-                display.appendChild(div);
+            const axisLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
+            const keys = ['x', 'y', 'z'];
+
+            keys.forEach((key, i) => {
+                const row = document.createElement('div');
+                row.className = 'thumb-row';
+
+                const label = document.createElement('div');
+                label.className = 'axis-label';
+                label.textContent = axisLabels[i];
+                row.appendChild(label);
+
+                const pair = document.createElement('div');
+                pair.className = 'thumb-pair';
+
+                if (data.original_thumbnails && data.original_thumbnails[key]) {
+                    const sDiv = document.createElement('div');
+                    sDiv.className = 'thumb-item sample';
+                    sDiv.innerHTML = `<p>Sample (Background)</p><img src="data:image/png;base64,${data.original_thumbnails[key]}" alt="Sample ${key}">`;
+                    pair.appendChild(sDiv);
+                }
+
+                if (data.template_thumbnails && data.template_thumbnails[key]) {
+                    const tDiv = document.createElement('div');
+                    tDiv.className = 'thumb-item template';
+                    tDiv.innerHTML = `<p>Template</p><img src="data:image/png;base64,${data.template_thumbnails[key]}" alt="Template ${key}">`;
+                    pair.appendChild(tDiv);
+                }
+
+                row.appendChild(pair);
+                section.appendChild(row);
             });
         }
 
-        document.getElementById('apply-rotation').addEventListener('click', () => {
+        function renderSignal(data) {
+            const card = $('signal-card');
+            const grid = $('signal-grid');
+            grid.innerHTML = '';
+
+            if (!data.signal_thumbnails || Object.keys(data.signal_thumbnails).length === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            card.style.display = 'block';
+            const axisLabels = ['X-Y (Dorsal)', 'X-Z (Lateral)', 'Y-Z (Anterior)'];
+            const keys = ['x', 'y', 'z'];
+
+            keys.forEach((key, i) => {
+                if (data.signal_thumbnails[key]) {
+                    const item = document.createElement('div');
+                    item.className = 'signal-item';
+                    item.innerHTML = `<p>${axisLabels[i]}</p><img src="data:image/png;base64,${data.signal_thumbnails[key]}" alt="Signal ${key}">`;
+                    grid.appendChild(item);
+                }
+            });
+        }
+
+        function renderHistogram(data) {
+            const img = $('histogram-img');
+            if (data.histogram) {
+                img.src = `data:image/png;base64,${data.histogram}`;
+                img.style.display = 'block';
+            } else {
+                img.style.display = 'none';
+            }
+        }
+
+        function renderCorrections(data) {
+            const sr = data.suggested_rotations || { x: 0, y: 0, z: 0 };
+            $('rot-x').value = sr.x;
+            $('rot-y').value = sr.y;
+            $('rot-z').value = sr.z;
+
+            // Show rotation status
+            const hasSuggested = sr.x !== 0 || sr.y !== 0 || sr.z !== 0;
+            const statusBadge = $('rotation-status');
+            const summaryDiv = $('rotation-summary');
+
+            if (hasSuggested) {
+                statusBadge.textContent = 'Unapplied';
+                statusBadge.className = 'badge badge-warn';
+                statusBadge.style.display = 'inline-block';
+                summaryDiv.textContent = `Suggested rotations: X=${sr.x}° Y=${sr.y}° Z=${sr.z}° — not yet applied`;
+            } else {
+                statusBadge.textContent = 'Applied';
+                statusBadge.className = 'badge badge-ok';
+                statusBadge.style.display = 'inline-block';
+                summaryDiv.textContent = 'No rotations pending — orientation appears correct';
+            }
+
+            // Disable Apply Suggested if no rotations needed
+            $('apply-suggested').disabled = !hasSuggested;
+        }
+
+        function renderApproval() {
+            const saved = savedData[currentImage];
+            const hasMC = saved && saved.manual_corrections;
+            $('approve-cmtk').disabled = !hasMC;
+            if (saved && saved.approved) {
+                $('approve-status').textContent = 'Approved for CMTK alignment at ' + saved.approved_at;
+                $('approve-cmtk').disabled = true;
+            } else if (hasMC) {
+                $('approve-status').textContent = 'Assessment saved. Ready to approve.';
+                $('approve-cmtk').disabled = false;
+            } else {
+                $('approve-status').textContent = 'Save assessment before approving.';
+            }
+        }
+
+        // --- Actions ---
+
+        $('swap-channel').addEventListener('click', () => {
+            const bgChannel = parseInt($('bg-channel-select').value);
+            loadImage(currentImage, bgChannel);
+        });
+
+        $('apply-suggested').addEventListener('click', () => {
+            if (!imageData || !imageData.suggested_rotations) return;
+            const sr = imageData.suggested_rotations;
+            $('rot-x').value = sr.x;
+            $('rot-y').value = sr.y;
+            $('rot-z').value = sr.z;
+        });
+
+        $('apply-rotation').addEventListener('click', () => {
             const rotations = {
-                x: parseInt(document.getElementById('rot-x').value),
-                y: parseInt(document.getElementById('rot-y').value),
-                z: parseInt(document.getElementById('rot-z').value)
+                x: parseInt($('rot-x').value),
+                y: parseInt($('rot-y').value),
+                z: parseInt($('rot-z').value)
             };
+
+            if (rotations.x === 0 && rotations.y === 0 && rotations.z === 0) {
+                alert('No rotation specified.');
+                return;
+            }
+
+            $('apply-rotation').disabled = true;
+            $('apply-rotation').textContent = 'Applying...';
 
             fetch(`/api/rotate?name=${encodeURIComponent(currentImage)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ rotations })
             })
-            .then(response => response.json())
+            .then(r => r.json())
             .then(() => {
-                // Reload image data
-                loadImage(currentImage);
+                $('apply-rotation').disabled = false;
+                $('apply-rotation').textContent = 'Apply Rotation';
+                $('rot-x').value = 0;
+                $('rot-y').value = 0;
+                $('rot-z').value = 0;
+                loadImage(currentImage, currentBgChannel);
+            })
+            .catch(() => {
+                $('apply-rotation').disabled = false;
+                $('apply-rotation').textContent = 'Apply Rotation';
+                alert('Failed to apply rotation.');
             });
         });
 
-        document.getElementById('save-changes').addEventListener('click', () => {
-            const template = document.getElementById('template-select').value;
-            const template_correct = document.getElementById('template-correct').checked;
-            const rotations = {
-                x: parseInt(document.getElementById('rot-x').value),
-                y: parseInt(document.getElementById('rot-y').value),
-                z: parseInt(document.getElementById('rot-z').value)
+        $('reset-rotation').addEventListener('click', () => {
+            if (!confirm('This will reset the image to its original orientation before any rotations were applied. Continue?')) {
+                return;
+            }
+
+            $('reset-rotation').disabled = true;
+            $('reset-rotation').textContent = 'Resetting...';
+
+            fetch(`/api/reset?name=${encodeURIComponent(currentImage)}`, {
+                method: 'POST'
+            })
+            .then(r => r.json())
+            .then(() => {
+                $('reset-rotation').disabled = false;
+                $('reset-rotation').textContent = 'Reset to Original';
+                $('rot-x').value = 0;
+                $('rot-y').value = 0;
+                $('rot-z').value = 0;
+                loadImage(currentImage, currentBgChannel);
+            })
+            .catch(() => {
+                $('reset-rotation').disabled = false;
+                $('reset-rotation').textContent = 'Reset to Original';
+                alert('Failed to reset rotation.');
+            });
+        });
+
+        $('save-changes').addEventListener('click', () => {
+            const payload = {
+                template: $('template-select').value,
+                template_correct: $('template-correct').checked,
+                background_channel: currentBgChannel,
+                rotations: {
+                    x: parseInt($('rot-x').value),
+                    y: parseInt($('rot-y').value),
+                    z: parseInt($('rot-z').value)
+                }
             };
 
             fetch(`/api/save?name=${encodeURIComponent(currentImage)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ template, template_correct, rotations })
+                body: JSON.stringify(payload)
             })
-            .then(response => response.json())
+            .then(r => r.json())
             .then(() => {
-                alert('Changes saved!');
+                // Refresh saved data
+                return fetch('/api/saved').then(r => r.json());
+            })
+            .then(saved => {
+                savedData = saved;
+                updateProgress();
+                renderApproval();
+                $('save-changes').textContent = 'Saved!';
+                setTimeout(() => { $('save-changes').textContent = 'Save Assessment'; }, 1500);
+            });
+        });
+
+        $('approve-cmtk').addEventListener('click', () => {
+            if (!confirm('Approve this image for CMTK alignment processing?')) return;
+
+            fetch(`/api/approve?name=${encodeURIComponent(currentImage)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(r => r.json())
+            .then(() => {
+                return fetch('/api/saved').then(r => r.json());
+            })
+            .then(saved => {
+                savedData = saved;
+                updateProgress();
+                renderApproval();
             });
         });
     </script>

@@ -1,1 +1,124 @@
-{}
+{
+  "DeepanshuSingh/BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite": {
+    "image_info": {
+      "shape": [
+        131,
+        2,
+        1024,
+        1024
+      ],
+      "num_channels": 2,
+      "background_channel": 1,
+      "voxel_sizes": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "automated_analysis": {
+      "detected_template": "JRC2018U_template_lps",
+      "orientation_correct": false,
+      "suggested_changes": [
+        "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
+        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
+      ],
+      "suggested_rotations": {
+        "x": 0,
+        "y": 0,
+        "z": 90
+      },
+      "peak_summary": {
+        "0": {
+          "sample_peaks": 11,
+          "template_peaks": 8
+        },
+        "1": {
+          "sample_peaks": 16,
+          "template_peaks": 6
+        },
+        "2": {
+          "sample_peaks": 2,
+          "template_peaks": 3
+        }
+      },
+      "template_info": {
+        "shape": [
+          1210,
+          566,
+          174
+        ],
+        "voxel_sizes": [
+          0.5189161,
+          0.5189161,
+          1.0
+        ],
+        "physical_size": [
+          627.9,
+          293.7,
+          174.0
+        ]
+      }
+    }
+  },
+  "DeepanshuSingh/Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1": {
+    "image_info": {
+      "shape": [
+        598,
+        2,
+        1024,
+        1024
+      ],
+      "num_channels": 2,
+      "background_channel": 1,
+      "voxel_sizes": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "automated_analysis": {
+      "detected_template": "JRC2018U_template_lps",
+      "orientation_correct": false,
+      "suggested_changes": [
+        "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
+        "Axis 2: too many peaks (13 vs template 3) - possible axis swap"
+      ],
+      "suggested_rotations": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "peak_summary": {
+        "0": {
+          "sample_peaks": 10,
+          "template_peaks": 8
+        },
+        "1": {
+          "sample_peaks": 16,
+          "template_peaks": 6
+        },
+        "2": {
+          "sample_peaks": 13,
+          "template_peaks": 3
+        }
+      },
+      "template_info": {
+        "shape": [
+          1210,
+          566,
+          174
+        ],
+        "voxel_sizes": [
+          0.5189161,
+          0.5189161,
+          1.0
+        ],
+        "physical_size": [
+          627.9,
+          293.7,
+          174.0
+        ]
+      }
+    }
+  }
+}

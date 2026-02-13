@@ -5,14 +5,25 @@ const path = require('path');
 
 const app = express();
 const PORT = 3000;
+const ORIENTATIONS_FILE = path.join(__dirname, 'orientations.json');
 
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
 
+function readOrientations() {
+    if (fs.existsSync(ORIENTATIONS_FILE)) {
+        return JSON.parse(fs.readFileSync(ORIENTATIONS_FILE, 'utf8'));
+    }
+    return {};
+}
+
+function writeOrientations(data) {
+    fs.writeFileSync(ORIENTATIONS_FILE, JSON.stringify(data, null, 2));
+}
+
 // API endpoints
 app.get('/api/images', (req, res) => {
-    // Get list of images from Images folder
     const imagesDir = path.join(__dirname, 'Images');
     const getTiffs = (dir) => {
         let tiffs = [];
@@ -37,27 +48,27 @@ app.get('/api/images', (req, res) => {
 });
 
 app.get('/api/saved', (req, res) => {
-    const jsonPath = path.join(__dirname, 'orientations.json');
-    if (fs.existsSync(jsonPath)) {
-        const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-        res.json(data);
-    } else {
-        res.json({});
-    }
+    res.json(readOrientations());
 });
 
 app.get('/api/image', (req, res) => {
     const imageName = req.query.name;
-    // Call Python script to get image data
-    exec(`source venv/bin/activate && python get_image_data.py ${imageName}`, (error, stdout, stderr) => {
+    const bgChannel = parseInt(req.query.bg_channel) || 1;
+    if (!imageName) {
+        return res.status(400).json({ error: 'Missing image name' });
+    }
+    exec(`source venv/bin/activate && python get_image_data.py "${imageName}" ${bgChannel}`, { maxBuffer: 50 * 1024 * 1024, timeout: 120000 }, (error, stdout, stderr) => {
         if (error) {
             console.error(`Error: ${error}`);
+            console.error(`stderr: ${stderr}`);
             return res.status(500).json({ error: 'Failed to get image data' });
         }
         try {
             const data = JSON.parse(stdout);
             res.json(data);
         } catch (e) {
+            console.error(`JSON parse error: ${e}`);
+            console.error(`stdout length: ${stdout.length}`);
             res.status(500).json({ error: 'Invalid JSON response' });
         }
     });
@@ -65,16 +76,74 @@ app.get('/api/image', (req, res) => {
 
 app.post('/api/rotate', (req, res) => {
     const imageName = req.query.name;
-    const { rotations } = req.body; // e.g., { x: 90, y: 0, z: 180 }
-    // Call Python script to apply rotations
+    const { rotations } = req.body;
+    if (!imageName || !rotations) {
+        return res.status(400).json({ error: 'Missing image name or rotations' });
+    }
     const rotStr = JSON.stringify(rotations);
-    exec(`source venv/bin/activate && python apply_rotation.py "${imageName}" '${rotStr}'`, (error, stdout, stderr) => {
+    exec(`source venv/bin/activate && python apply_rotation.py "${imageName}" '${rotStr}'`, { timeout: 120000 }, (error, stdout, stderr) => {
         if (error) {
             console.error(`Error: ${error}`);
             return res.status(500).json({ error: 'Failed to apply rotation' });
         }
         res.json({ success: true });
     });
+});
+
+app.post('/api/reset', (req, res) => {
+    const imageName = req.query.name;
+    if (!imageName) {
+        return res.status(400).json({ error: 'Missing image name' });
+    }
+    exec(`source venv/bin/activate && python reset_rotation.py "${imageName}"`, { timeout: 60000 }, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Error: ${error}`);
+            return res.status(500).json({ error: 'Failed to reset rotation' });
+        }
+        res.json({ success: true });
+    });
+});
+
+app.post('/api/save', (req, res) => {
+    const imageName = req.query.name;
+    const { template, template_correct, background_channel, rotations } = req.body;
+    if (!imageName) {
+        return res.status(400).json({ error: 'Missing image name' });
+    }
+
+    const saved = readOrientations();
+    const entry = saved[imageName] || {};
+
+    // Merge manual corrections without overwriting image_info or automated_analysis
+    entry.manual_corrections = {
+        template: template || '',
+        template_correct: !!template_correct,
+        background_channel: background_channel !== undefined ? background_channel : 1,
+        rotations: rotations || { x: 0, y: 0, z: 0 }
+    };
+    entry.saved_at = new Date().toISOString();
+
+    saved[imageName] = entry;
+    writeOrientations(saved);
+    res.json({ success: true });
+});
+
+app.post('/api/approve', (req, res) => {
+    const imageName = req.query.name;
+    if (!imageName) {
+        return res.status(400).json({ error: 'Missing image name' });
+    }
+
+    const saved = readOrientations();
+    if (!saved[imageName]) {
+        return res.status(400).json({ error: 'Image not saved yet - save changes first' });
+    }
+
+    saved[imageName].approved = true;
+    saved[imageName].approved_at = new Date().toISOString();
+
+    writeOrientations(saved);
+    res.json({ success: true, message: 'Image approved for CMTK alignment' });
 });
 
 app.listen(PORT, () => {
