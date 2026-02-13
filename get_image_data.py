@@ -216,12 +216,31 @@ def check_orientation(sample_peaks, sample_proj_1d, template_key, template_info)
 def generate_thumbnail(proj_2d, vox_sizes=None, axis=None, figsize=(4, 4), dpi=100):
     """Generate a base64 PNG thumbnail from a 2D max projection.
 
-    The image is stretched to fill the full canvas so both sample and
-    template thumbnails use the same visual area.  This is intentional:
-    the thumbnails are for orientation comparison, not exact proportions.
+    Auto-crops to the bounding box of non-zero data (with a small margin)
+    so the brain fills the thumbnail instead of being surrounded by black.
+    The image is stretched to fill the full canvas for easy orientation
+    comparison.
     """
+    # Auto-crop to bounding box of signal
+    img = proj_2d
+    threshold = np.percentile(img[img > 0], 5) if np.any(img > 0) else 0
+    mask = img > threshold
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    if rows.any() and cols.any():
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+        # Add a small margin (5% of extent)
+        margin_r = max(int((rmax - rmin) * 0.05), 2)
+        margin_c = max(int((cmax - cmin) * 0.05), 2)
+        rmin = max(rmin - margin_r, 0)
+        rmax = min(rmax + margin_r, img.shape[0] - 1)
+        cmin = max(cmin - margin_c, 0)
+        cmax = min(cmax + margin_c, img.shape[1] - 1)
+        img = img[rmin:rmax+1, cmin:cmax+1]
+
     fig, ax = plt.subplots(figsize=figsize)
-    ax.imshow(proj_2d, cmap='gray', aspect='auto')
+    ax.imshow(img, cmap='gray', aspect='auto')
     ax.axis('off')
 
     buf = BytesIO()
@@ -315,10 +334,13 @@ def main():
     num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
 
     # Create backup of original image if it doesn't exist
-    backup_file = tiff_file.with_suffix('.original' + tiff_file.suffix)
+    # Store backups in a _backups directory mirroring the Images structure
+    backup_dir = Path("_backups") / tiff_file.parent.relative_to(Path("Images"))
+    backup_file = backup_dir / tiff_file.name
     if not backup_file.exists():
-        print(f"Creating backup of original image: {backup_file.name}", file=sys.stderr)
         import shutil
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Creating backup: {backup_file}", file=sys.stderr)
         shutil.copy2(str(tiff_file), str(backup_file))
 
     # Extract background and signal channels

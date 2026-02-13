@@ -33,7 +33,7 @@ app.get('/api/images', (req, res) => {
             const stat = fs.statSync(fullPath);
             if (stat.isDirectory()) {
                 tiffs = tiffs.concat(getTiffs(fullPath));
-            } else if (item.endsWith('.tif') || item.endsWith('.tiff')) {
+            } else if ((item.endsWith('.tif') || item.endsWith('.tiff')) && !item.includes('.original')) {
                 tiffs.push(path.relative(imagesDir, fullPath).replace(/\.tif$/, '').replace(/\.tiff$/, ''));
             }
         }
