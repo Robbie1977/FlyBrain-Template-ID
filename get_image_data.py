@@ -303,6 +303,13 @@ def save_to_orientations(image_path, image_info, automated_analysis):
         saved = json.loads(ORIENTATIONS_FILE.read_text())
 
     entry = saved.get(image_path, {})
+
+    # Merge image_info: preserve existing voxel_sizes if they exist and are not defaults
+    existing_image_info = entry.get('image_info', {})
+    if existing_image_info.get('voxel_sizes') and existing_image_info['voxel_sizes'] != [DEFAULT_VOXEL_SIZE, DEFAULT_VOXEL_SIZE, DEFAULT_VOXEL_SIZE]:
+        # Preserve existing non-default voxel sizes
+        image_info['voxel_sizes'] = existing_image_info['voxel_sizes']
+
     entry['image_info'] = image_info
     entry['automated_analysis'] = automated_analysis
     # Preserve existing manual_corrections, approved, etc.

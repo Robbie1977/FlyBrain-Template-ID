@@ -55,8 +55,18 @@ def main():
             print("Error: Image not found")
             sys.exit(1)
 
-    # Load data
-    data = tifffile.imread(str(tiff_file))
+    # Load data and metadata
+    with tifffile.TiffFile(str(tiff_file)) as tif:
+        data = tif.asarray()
+        metadata = {}
+        
+        # Preserve ImageJ metadata
+        if hasattr(tif, 'imagej_metadata') and tif.imagej_metadata:
+            metadata['imagej'] = tif.imagej_metadata
+            
+        # Preserve OME metadata
+        if hasattr(tif, 'ome_metadata') and tif.ome_metadata:
+            metadata['ome'] = tif.ome_metadata
 
     if data.ndim == 4:
         # Multichannel: [Z, Channels, Y, X] — rotate each channel independently
@@ -70,14 +80,72 @@ def main():
         rotated = np.empty((new_z, num_channels, new_y, new_x), dtype=data.dtype)
         for ch in range(num_channels):
             rotated[:, ch, :, :] = rotated_channels[ch]
-        tifffile.imwrite(str(tiff_file), rotated.astype(data.dtype))
+        tifffile.imwrite(str(tiff_file), rotated.astype(data.dtype), metadata=metadata)
     else:
         # Single channel 3D
         rotated = apply_rotations(data, rotations)
-        tifffile.imwrite(str(tiff_file), rotated.astype(data.dtype))
+        tifffile.imwrite(str(tiff_file), rotated.astype(data.dtype), metadata=metadata)
 
-    print("Rotation applied successfully")
+    # Update voxel sizes in orientations.json
+    update_voxel_sizes_after_rotation(image_path, rotations)
 
-
-if __name__ == "__main__":
-    main()
+def update_voxel_sizes_after_rotation(image_path, rotations):
+    """Update voxel sizes in orientations.json to reflect axis permutations from rotations."""
+    import json
+    from pathlib import Path
+    
+    orientations_file = Path("orientations.json")
+    if not orientations_file.exists():
+        return
+    
+    # Load orientations
+    with open(orientations_file, 'r') as f:
+        data = json.load(f)
+    
+    if image_path not in data:
+        return
+    
+    entry = data[image_path]
+    voxel_sizes = entry.get('image_info', {}).get('voxel_sizes', [0.5, 0.5, 0.5])
+    if voxel_sizes == [0.5, 0.5, 0.5]:
+        # Don't update if we have default values (they might be wrong anyway)
+        return
+    
+    # Data layout: [Z, Height, Width] (axes 0, 1, 2)
+    # Voxel sizes correspond to [Z, Y, X] (voxel_sizes[0], voxel_sizes[1], voxel_sizes[2])
+    
+    axis_mapping = {
+        'x': (0, 1),  # Z↔Height (Y axis)
+        'y': (0, 2),  # Z↔Width (X axis)  
+        'z': (1, 2),  # Height↔Width (Y↔X axes)
+    }
+    
+    # Apply rotations in order (x, y, z)
+    current_permutation = [0, 1, 2]  # [Z, Y, X]
+    
+    for axis_name, degrees in rotations.items():
+        if degrees == 0:
+            continue
+        
+        if degrees not in [90, 180, 270]:
+            continue
+            
+        axes = axis_mapping[axis_name]
+        k = degrees // 90
+        
+        # For each 90° rotation, swap the axes
+        for _ in range(k):
+            # Swap the two axes
+            temp = current_permutation[axes[0]]
+            current_permutation[axes[0]] = current_permutation[axes[1]]
+            current_permutation[axes[1]] = temp
+    
+    # Reorder voxel sizes according to final permutation
+    new_voxel_sizes = [voxel_sizes[i] for i in current_permutation]
+    
+    # Update orientations.json
+    entry['image_info']['voxel_sizes'] = new_voxel_sizes
+    with open(orientations_file, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    print(f"Updated voxel sizes for {image_path}: {voxel_sizes} -> {new_voxel_sizes}")
