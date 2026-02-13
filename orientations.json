@@ -2,25 +2,25 @@
   "DeepanshuSingh/Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1": {
     "image_info": {
       "shape": [
-        598,
+        1024,
         2,
         1024,
-        1024
+        598
       ],
       "num_channels": 2,
       "background_channel": 1,
       "voxel_sizes": [
-        0.29993082077051925,
-        0.30601178512586874,
-        0.30601178512586874
+        0.5,
+        0.5,
+        0.5
       ]
     },
     "automated_analysis": {
       "detected_template": "JRC2018U_template_lps",
       "orientation_correct": false,
       "suggested_changes": [
-        "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
-        "Axis 2: too many peaks (13 vs template 3) - possible axis swap"
+        "Axis 1: too many peaks (13 vs template 6) - possible axis swap",
+        "Axis 2: too many peaks (10 vs template 3) - possible axis swap"
       ],
       "suggested_rotations": {
         "x": 0,
@@ -29,15 +29,15 @@
       },
       "peak_summary": {
         "0": {
-          "sample_peaks": 10,
+          "sample_peaks": 16,
           "template_peaks": 8
         },
         "1": {
-          "sample_peaks": 16,
+          "sample_peaks": 13,
           "template_peaks": 6
         },
         "2": {
-          "sample_peaks": 13,
+          "sample_peaks": 10,
           "template_peaks": 3
         }
       },
@@ -50,30 +50,194 @@
         "voxel_sizes": [
           0.5189161,
           0.5189161,
-          1.0
+          1
         ],
         "physical_size": [
           627.9,
           293.7,
-          174.0
+          174
         ]
       }
-    }
+    },
+    "manual_corrections": {
+      "template": "JRC2018U_template_lps",
+      "template_correct": false,
+      "background_channel": 1,
+      "rotations": {
+        "x": 90,
+        "y": 0,
+        "z": 90
+      }
+    },
+    "saved_at": "2026-02-13T22:55:05.764Z",
+    "approved": true,
+    "approved_at": "2026-02-13T23:11:07.287Z"
   },
   "DeepanshuSingh/Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1": {
     "image_info": {
       "shape": [
-        236,
+        1024,
         2,
         1024,
-        1024
+        236
       ],
       "num_channels": 2,
       "background_channel": 1,
       "voxel_sizes": [
-        0.2999308510638298,
-        0.3595504325211928,
-        0.3595504325211928
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "automated_analysis": {
+      "detected_template": "JRC2018U_template_lps",
+      "orientation_correct": false,
+      "suggested_changes": [
+        "Axis 1: too many peaks (15 vs template 6) - possible axis swap",
+        "Axis 2: too many peaks (10 vs template 3) - possible axis swap",
+        "X-axis highly asymmetric - possible 90° rotation needed"
+      ],
+      "suggested_rotations": {
+        "x": 0,
+        "y": 0,
+        "z": 90
+      },
+      "peak_summary": {
+        "0": {
+          "sample_peaks": 14,
+          "template_peaks": 8
+        },
+        "1": {
+          "sample_peaks": 15,
+          "template_peaks": 6
+        },
+        "2": {
+          "sample_peaks": 10,
+          "template_peaks": 3
+        }
+      },
+      "template_info": {
+        "shape": [
+          1210,
+          566,
+          174
+        ],
+        "voxel_sizes": [
+          0.5189161,
+          0.5189161,
+          1
+        ],
+        "physical_size": [
+          627.9,
+          293.7,
+          174
+        ]
+      }
+    },
+    "manual_corrections": {
+      "template": "JRC2018U_template_lps",
+      "template_correct": false,
+      "background_channel": 1,
+      "rotations": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    },
+    "saved_at": "2026-02-13T22:59:01.683Z",
+    "approved": true,
+    "approved_at": "2026-02-13T22:59:04.407Z"
+  },
+  "DeepanshuSingh/Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3": {
+    "image_info": {
+      "shape": [
+        1024,
+        2,
+        1024,
+        125
+      ],
+      "num_channels": 2,
+      "background_channel": 1,
+      "voxel_sizes": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "automated_analysis": {
+      "detected_template": "JRC2018U_template_lps",
+      "orientation_correct": false,
+      "suggested_changes": [
+        "Axis 0: too many peaks (17 vs template 8) - possible axis swap",
+        "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
+        "Axis 2: too many peaks (7 vs template 3) - possible axis swap",
+        "X-axis highly asymmetric - possible 90° rotation needed"
+      ],
+      "suggested_rotations": {
+        "x": 0,
+        "y": 0,
+        "z": 90
+      },
+      "peak_summary": {
+        "0": {
+          "sample_peaks": 17,
+          "template_peaks": 8
+        },
+        "1": {
+          "sample_peaks": 16,
+          "template_peaks": 6
+        },
+        "2": {
+          "sample_peaks": 7,
+          "template_peaks": 3
+        }
+      },
+      "template_info": {
+        "shape": [
+          1210,
+          566,
+          174
+        ],
+        "voxel_sizes": [
+          0.5189161,
+          0.5189161,
+          1
+        ],
+        "physical_size": [
+          627.9,
+          293.7,
+          174
+        ]
+      }
+    },
+    "manual_corrections": {
+      "template": "JRC2018U_template_lps",
+      "template_correct": false,
+      "background_channel": 1,
+      "rotations": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    },
+    "saved_at": "2026-02-13T23:00:48.799Z",
+    "approved": true,
+    "approved_at": "2026-02-13T23:00:51.584Z"
+  },
+  "DeepanshuSingh/Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite": {
+    "image_info": {
+      "shape": [
+        1024,
+        2,
+        1024,
+        164
+      ],
+      "num_channels": 2,
+      "background_channel": 1,
+      "voxel_sizes": [
+        0.5,
+        0.5,
+        0.5
       ]
     },
     "automated_analysis": {
@@ -81,17 +245,16 @@
       "orientation_correct": false,
       "suggested_changes": [
         "Axis 1: too many peaks (14 vs template 6) - possible axis swap",
-        "Axis 2: too many peaks (15 vs template 3) - possible axis swap",
-        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
+        "Axis 2: too many peaks (11 vs template 3) - possible axis swap"
       ],
       "suggested_rotations": {
         "x": 0,
         "y": 0,
-        "z": 90
+        "z": 0
       },
       "peak_summary": {
         "0": {
-          "sample_peaks": 10,
+          "sample_peaks": 16,
           "template_peaks": 8
         },
         "1": {
@@ -99,131 +262,7 @@
           "template_peaks": 6
         },
         "2": {
-          "sample_peaks": 15,
-          "template_peaks": 3
-        }
-      },
-      "template_info": {
-        "shape": [
-          1210,
-          566,
-          174
-        ],
-        "voxel_sizes": [
-          0.5189161,
-          0.5189161,
-          1.0
-        ],
-        "physical_size": [
-          627.9,
-          293.7,
-          174.0
-        ]
-      }
-    }
-  },
-  "DeepanshuSingh/Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3": {
-    "image_info": {
-      "shape": [
-        125,
-        2,
-        1024,
-        1024
-      ],
-      "num_channels": 2,
-      "background_channel": 1,
-      "voxel_sizes": [
-        0.9006,
-        0.3787878787878788,
-        0.3787878787878788
-      ]
-    },
-    "automated_analysis": {
-      "detected_template": "JRC2018U_template_lps",
-      "orientation_correct": false,
-      "suggested_changes": [
-        "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
-        "Axis 2: too many peaks (17 vs template 3) - possible axis swap",
-        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
-      ],
-      "suggested_rotations": {
-        "x": 0,
-        "y": 0,
-        "z": 90
-      },
-      "peak_summary": {
-        "0": {
-          "sample_peaks": 7,
-          "template_peaks": 8
-        },
-        "1": {
-          "sample_peaks": 16,
-          "template_peaks": 6
-        },
-        "2": {
-          "sample_peaks": 17,
-          "template_peaks": 3
-        }
-      },
-      "template_info": {
-        "shape": [
-          1210,
-          566,
-          174
-        ],
-        "voxel_sizes": [
-          0.5189161,
-          0.5189161,
-          1
-        ],
-        "physical_size": [
-          627.9,
-          293.7,
-          174
-        ]
-      }
-    }
-  },
-  "DeepanshuSingh/Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite": {
-    "image_info": {
-      "shape": [
-        164,
-        2,
-        1024,
-        1024
-      ],
-      "num_channels": 2,
-      "background_channel": 1,
-      "voxel_sizes": [
-        0.9006,
-        0.3787878787878788,
-        0.3787878787878788
-      ]
-    },
-    "automated_analysis": {
-      "detected_template": "JRC2018U_template_lps",
-      "orientation_correct": false,
-      "suggested_changes": [
-        "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
-        "Axis 2: too many peaks (14 vs template 3) - possible axis swap",
-        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
-      ],
-      "suggested_rotations": {
-        "x": 0,
-        "y": 0,
-        "z": 90
-      },
-      "peak_summary": {
-        "0": {
           "sample_peaks": 11,
-          "template_peaks": 8
-        },
-        "1": {
-          "sample_peaks": 16,
-          "template_peaks": 6
-        },
-        "2": {
-          "sample_peaks": 14,
           "template_peaks": 3
         }
       },
@@ -244,7 +283,20 @@
           174
         ]
       }
-    }
+    },
+    "manual_corrections": {
+      "template": "JRC2018U_template_lps",
+      "template_correct": false,
+      "background_channel": 1,
+      "rotations": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    },
+    "saved_at": "2026-02-13T23:07:50.160Z",
+    "approved": true,
+    "approved_at": "2026-02-13T23:07:37.195Z"
   },
   "DeepanshuSingh/VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite": {
     "image_info": {
@@ -576,7 +628,7 @@
       "suggested_changes": [
         "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
         "Axis 2: too many peaks (14 vs template 3) - possible axis swap",
-        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
+        "X-axis highly asymmetric - possible 90° rotation needed"
       ],
       "suggested_rotations": {
         "x": 0,
@@ -637,7 +689,7 @@
       "orientation_correct": false,
       "suggested_changes": [
         "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
-        "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
+        "X-axis highly asymmetric - possible 90° rotation needed"
       ],
       "suggested_rotations": {
         "x": 0,

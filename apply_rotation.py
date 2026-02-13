@@ -59,15 +59,17 @@ def main():
     data = tifffile.imread(str(tiff_file))
 
     if data.ndim == 4:
-        # Multichannel: rotate each channel independently, preserve 4D structure
+        # Multichannel: [Z, Channels, Y, X] — rotate each channel independently
         num_channels = data.shape[1]
-        # Apply rotation to first channel to determine output shape
-        test_rotated = apply_rotations(data[:, 0, :, :], rotations)
-        rotated_shape = (data.shape[0], num_channels) + test_rotated.shape
-        rotated = np.empty(rotated_shape, dtype=data.dtype)
-
+        # Rotate each channel and collect results
+        rotated_channels = []
         for ch in range(num_channels):
-            rotated[:, ch, :, :] = apply_rotations(data[:, ch, :, :], rotations)
+            rotated_channels.append(apply_rotations(data[:, ch, :, :], rotations))
+        # Reconstruct 4D array: [new_Z, Channels, new_Y, new_X]
+        new_z, new_y, new_x = rotated_channels[0].shape
+        rotated = np.empty((new_z, num_channels, new_y, new_x), dtype=data.dtype)
+        for ch in range(num_channels):
+            rotated[:, ch, :, :] = rotated_channels[ch]
         tifffile.imwrite(str(tiff_file), rotated.astype(data.dtype))
     else:
         # Single channel 3D

@@ -11,6 +11,11 @@ const ORIENTATIONS_FILE = path.join(__dirname, 'orientations.json');
 app.use(express.json());
 app.use(express.static('public'));
 
+// Alignment queue
+let alignmentQueue = [];
+let currentAlignment = null;
+let alignmentStatus = {}; // image_base -> { status: 'queued|processing|completed|failed', progress: 0-100, error: '' }
+
 function readOrientations() {
     if (fs.existsSync(ORIENTATIONS_FILE)) {
         return JSON.parse(fs.readFileSync(ORIENTATIONS_FILE, 'utf8'));
@@ -20,6 +25,43 @@ function readOrientations() {
 
 function writeOrientations(data) {
     fs.writeFileSync(ORIENTATIONS_FILE, JSON.stringify(data, null, 2));
+}
+
+// Process alignment queue
+function processAlignmentQueue() {
+    if (currentAlignment || alignmentQueue.length === 0) {
+        return;
+    }
+
+    currentAlignment = alignmentQueue.shift();
+    const imageBase = currentAlignment;
+    alignmentStatus[imageBase] = { status: 'processing', progress: 0, error: '' };
+
+    console.log(`Starting alignment for: ${imageBase}`);
+
+    const timestamp = new Date().toISOString();
+    exec(`./align_single_cmtk.sh "${imageBase}"`, { timeout: 600000 }, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Alignment failed for ${imageBase}:`, error);
+            alignmentStatus[imageBase] = { 
+                status: 'failed', 
+                progress: 0, 
+                error: error.message || 'Unknown error',
+                completed_at: new Date().toISOString()
+            };
+        } else {
+            console.log(`Alignment completed for: ${imageBase}`);
+            alignmentStatus[imageBase] = { 
+                status: 'completed', 
+                progress: 100, 
+                error: '',
+                completed_at: new Date().toISOString()
+            };
+        }
+        currentAlignment = null;
+        // Process next in queue
+        setTimeout(processAlignmentQueue, 1000);
+    });
 }
 
 // API endpoints
@@ -143,7 +185,56 @@ app.post('/api/approve', (req, res) => {
     saved[imageName].approved_at = new Date().toISOString();
 
     writeOrientations(saved);
+
+    // Add to alignment queue
+    const imageBase = imageName.split('/').pop(); // Get the base name after the submitter
+    if (!alignmentQueue.includes(imageBase) && alignmentStatus[imageBase]?.status !== 'processing' && alignmentStatus[imageBase]?.status !== 'completed') {
+        alignmentQueue.push(imageBase);
+        alignmentStatus[imageBase] = { status: 'queued', progress: 0, error: '', queued_at: new Date().toISOString() };
+        console.log(`Added ${imageBase} to alignment queue`);
+        // Start processing if not already running
+        processAlignmentQueue();
+    }
+
     res.json({ success: true, message: 'Image approved for CMTK alignment' });
+});
+
+app.get('/api/alignment-status', (req, res) => {
+    const queuePosition = {};
+    alignmentQueue.forEach((item, index) => {
+        queuePosition[item] = index + 1;
+    });
+
+    const status = Object.keys(alignmentStatus).map(imageBase => ({
+        image_base: imageBase,
+        ...alignmentStatus[imageBase],
+        queue_position: queuePosition[imageBase] || null
+    }));
+
+    res.json({
+        current: currentAlignment,
+        queue: alignmentQueue,
+        status: status
+    });
+});
+
+app.get('/api/alignment-thumbnails', (req, res) => {
+    const imageBase = req.query.image_base;
+    if (!imageBase) {
+        return res.status(400).json({ error: 'Missing image_base parameter' });
+    }
+
+    const thumbnailFile = path.join(__dirname, 'corrected', `${imageBase}_alignment_thumbnails.json`);
+    if (!fs.existsSync(thumbnailFile)) {
+        return res.status(404).json({ error: 'Thumbnails not found - alignment may not be complete' });
+    }
+
+    try {
+        const thumbnails = JSON.parse(fs.readFileSync(thumbnailFile, 'utf8'));
+        res.json(thumbnails);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to read thumbnails' });
+    }
 });
 
 app.listen(PORT, () => {
