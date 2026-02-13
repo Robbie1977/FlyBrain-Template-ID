@@ -1,0 +1,25 @@
+{
+  "name": "flybrain-template-id",
+  "version": "1.0.0",
+  "description": "This guide provides comprehensive information for identifying template images aligned to existing template spaces, converting common file types to navis loadable formats, and bridging to standard VFB templates using navis FlyBrains tools.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Robbie1977/FlyBrain-Template-ID.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Robbie1977/FlyBrain-Template-ID/issues"
+  },
+  "homepage": "https://github.com/Robbie1977/FlyBrain-Template-ID#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

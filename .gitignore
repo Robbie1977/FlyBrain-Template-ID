@@ -14,3 +14,4 @@ test_aligned.nrrd
 vfb_ready/*
 final_test/*
 miniconda
+node_modules/*

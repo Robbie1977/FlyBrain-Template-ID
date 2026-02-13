@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fly Brain Orientation Review</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .image-selector { margin-bottom: 20px; }
+        .image-display { display: flex; flex-wrap: wrap; gap: 20px; }
+        .thumbnail { border: 1px solid #ccc; padding: 10px; }
+        .thumbnail img { max-width: 150px; max-height: 150px; }
+        .controls { margin-top: 20px; }
+        .rotation-controls { display: flex; gap: 10px; margin-bottom: 10px; }
+        button { padding: 5px 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Fly Brain Orientation Review</h1>
+
+        <div class="image-selector">
+            <button id="prev-image">&lt; Prev</button>
+            <label for="image-select">Select Image:</label>
+            <select id="image-select"></select>
+            <button id="next-image">Next &gt;</button>
+        </div>
+
+        <div id="image-display" class="image-display">
+            <!-- Image data will be loaded here -->
+        </div>
+
+        <div class="controls">
+            <h2>Manual Rotation</h2>
+            <div class="rotation-controls">
+                <label>X-axis: <input type="number" id="rot-x" value="0" step="90" min="0" max="270">°</label>
+                <label>Y-axis: <input type="number" id="rot-y" value="0" step="90" min="0" max="270">°</label>
+                <label>Z-axis: <input type="number" id="rot-z" value="0" step="90" min="0" max="270">°</label>
+            </div>
+            <button id="apply-rotation">Apply Rotation</button>
+            <button id="save-changes">Save Changes</button>
+        </div>
+    </div>
+
+    <script>
+        let currentImage = null;
+        let imageData = null;
+
+        let images = [];
+
+        // Load image list
+        fetch('/api/images')
+            .then(response => response.json())
+            .then(data => {
+                images = data;
+                const select = document.getElementById('image-select');
+                images.forEach(image => {
+                    const option = document.createElement('option');
+                    option.value = image;
+                    option.textContent = image;
+                    select.appendChild(option);
+                });
+                if (images.length > 0) {
+                    loadImage(images[0]);
+                }
+            });
+
+        document.getElementById('image-select').addEventListener('change', (e) => {
+            loadImage(e.target.value);
+        });
+
+        document.getElementById('prev-image').addEventListener('click', () => {
+            const currentIndex = images.indexOf(currentImage);
+            if (currentIndex > 0) {
+                loadImage(images[currentIndex - 1]);
+                document.getElementById('image-select').value = images[currentIndex - 1];
+            }
+        });
+
+        document.getElementById('next-image').addEventListener('click', () => {
+            const currentIndex = images.indexOf(currentImage);
+            if (currentIndex < images.length - 1) {
+                loadImage(images[currentIndex + 1]);
+                document.getElementById('image-select').value = images[currentIndex + 1];
+            }
+        });
+
+        function loadImage(imageName) {
+            currentImage = imageName;
+            fetch(`/api/image?name=${encodeURIComponent(imageName)}`)
+                .then(response => response.json())
+                .then(data => {
+                    imageData = data;
+                    displayImage(data);
+                    loadSavedData(imageName);
+                });
+        }
+
+        function loadSavedData(imageName) {
+            fetch('/api/saved')
+                .then(response => response.json())
+                .then(saved => {
+                    const data = saved[imageName];
+                    if (data) {
+                        document.getElementById('template-select').value = data.template || imageData.template;
+                        document.getElementById('template-correct').checked = data.template_correct;
+                        document.getElementById('rot-x').value = data.rotations.x || 0;
+                        document.getElementById('rot-y').value = data.rotations.y || 0;
+                        document.getElementById('rot-z').value = data.rotations.z || 0;
+                    }
+                });
+        }
+
+        function displayImage(data) {
+            console.log('displayImage called with data:', data);
+            const display = document.getElementById('image-display');
+            display.innerHTML = '';
+
+            // Template info
+            const templateDiv = document.createElement('div');
+            templateDiv.className = 'thumbnail';
+            templateDiv.innerHTML = `
+                <h3>Template</h3>
+                <select id="template-select">
+                    <option value="JRC2018U_template_lps">JRC2018U_template_lps</option>
+                    <option value="JRC2018U_template">JRC2018U_template</option>
+                    <option value="JRCVNC2018U_template">JRCVNC2018U_template</option>
+                    <option value="JRCVNC2018U_template_lps">JRCVNC2018U_template_lps</option>
+                </select>
+                <p>Is this correct? <input type="checkbox" id="template-correct" ${data.template_correct ? 'checked' : ''}></p>
+            `;
+            document.getElementById('template-select').value = data.template;
+            display.appendChild(templateDiv);
+
+            // Comparison thumbnails
+            const axisLabels = ['X-Y (Dorsal)', 'X-Z (Lateral)', 'Y-Z (Anterior)'];
+            const axisKeys = ['x', 'y', 'z'];
+
+            axisLabels.forEach((label, i) => {
+                console.log(`Creating thumbnail for ${label}, axis ${axisKeys[i]}, has data:`, !!data.original_thumbnails[axisKeys[i]]);
+                const div = document.createElement('div');
+                div.className = 'thumbnail';
+
+                const h3 = document.createElement('h3');
+                h3.textContent = label;
+                div.appendChild(h3);
+
+                const flexDiv = document.createElement('div');
+                flexDiv.style.display = 'flex';
+                flexDiv.style.gap = '10px';
+                flexDiv.style.alignItems = 'center';
+
+                // Sample
+                const sampleDiv = document.createElement('div');
+                sampleDiv.style.textAlign = 'center';
+                const sampleP = document.createElement('p');
+                sampleP.textContent = 'Sample';
+                sampleDiv.appendChild(sampleP);
+                const sampleImg = document.createElement('img');
+                sampleImg.src = `data:image/png;base64,${data.original_thumbnails[axisKeys[i]]}`;
+                sampleImg.alt = `Sample ${axisKeys[i]}`;
+                sampleImg.style.border = '1px solid red';
+                sampleDiv.appendChild(sampleImg);
+                flexDiv.appendChild(sampleDiv);
+
+                // Template
+                const templateDiv = document.createElement('div');
+                templateDiv.style.textAlign = 'center';
+                const templateP = document.createElement('p');
+                templateP.textContent = 'Template';
+                templateDiv.appendChild(templateP);
+                const templateImg = document.createElement('img');
+                templateImg.src = `data:image/png;base64,${data.suggested_thumbnails[axisKeys[i]]}`;
+                templateImg.alt = `Template ${axisKeys[i]}`;
+                templateImg.style.border = '1px solid blue';
+                templateDiv.appendChild(templateImg);
+                flexDiv.appendChild(templateDiv);
+
+                div.appendChild(flexDiv);
+                display.appendChild(div);
+            });
+        }
+
+        document.getElementById('apply-rotation').addEventListener('click', () => {
+            const rotations = {
+                x: parseInt(document.getElementById('rot-x').value),
+                y: parseInt(document.getElementById('rot-y').value),
+                z: parseInt(document.getElementById('rot-z').value)
+            };
+
+            fetch(`/api/rotate?name=${encodeURIComponent(currentImage)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rotations })
+            })
+            .then(response => response.json())
+            .then(() => {
+                // Reload image data
+                loadImage(currentImage);
+            });
+        });
+
+        document.getElementById('save-changes').addEventListener('click', () => {
+            const template = document.getElementById('template-select').value;
+            const template_correct = document.getElementById('template-correct').checked;
+            const rotations = {
+                x: parseInt(document.getElementById('rot-x').value),
+                y: parseInt(document.getElementById('rot-y').value),
+                z: parseInt(document.getElementById('rot-z').value)
+            };
+
+            fetch(`/api/save?name=${encodeURIComponent(currentImage)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ template, template_correct, rotations })
+            })
+            .then(response => response.json())
+            .then(() => {
+                alert('Changes saved!');
+            });
+        });
+    </script>
+</body>
+</html>
