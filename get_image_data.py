@@ -30,6 +30,72 @@ ORIENTATIONS_FILE = Path("orientations.json")
 
 _template_cache = {}
 
+DEFAULT_VOXEL_SIZE = 0.5  # µm – used when TIFF metadata has no resolution info
+
+
+def _extract_voxel_sizes(tif):
+    """Try to read voxel/pixel sizes from TIFF metadata.
+
+    Checks ImageJ metadata, OME metadata, and standard TIFF resolution tags.
+    Returns [vz, vy, vx] in µm.  Falls back to DEFAULT_VOXEL_SIZE if nothing
+    is found.
+    """
+    vx = vy = vz = None
+
+    # --- Try ImageJ metadata (most FlyBrain TIFFs) ---
+    try:
+        ij = tif.imagej_metadata
+        if ij:
+            # ImageJ stores spacing for Z in 'spacing'
+            if 'spacing' in ij:
+                vz = float(ij['spacing'])
+            # XY resolution is in the TIFF page resolution tags
+            page = tif.pages[0]
+            tags = page.tags
+            if 'XResolution' in tags:
+                xr = tags['XResolution'].value
+                if isinstance(xr, tuple) and xr[0] > 0:
+                    vx = xr[1] / xr[0]  # (pixels_per_unit, unit_scale) → µm/pixel
+            if 'YResolution' in tags:
+                yr = tags['YResolution'].value
+                if isinstance(yr, tuple) and yr[0] > 0:
+                    vy = yr[1] / yr[0]
+            # ImageJ unit tag – convert if not already µm
+            unit = ij.get('unit', 'micron')
+            if unit and unit.lower() in ('um', 'µm', 'micron', 'microns', 'micrometer'):
+                pass  # already µm
+            elif unit and unit.lower() in ('nm', 'nanometer', 'nanometers'):
+                if vx: vx /= 1000.0
+                if vy: vy /= 1000.0
+                if vz: vz /= 1000.0
+    except Exception:
+        pass
+
+    # --- Try OME-XML metadata ---
+    if vx is None:
+        try:
+            if hasattr(tif, 'ome_metadata') and tif.ome_metadata:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(tif.ome_metadata)
+                ns = {'ome': root.tag.split('}')[0].strip('{')} if '}' in root.tag else {}
+                pixels = root.find('.//ome:Pixels', ns) if ns else root.find('.//Pixels')
+                if pixels is not None:
+                    if pixels.get('PhysicalSizeX'):
+                        vx = float(pixels.get('PhysicalSizeX'))
+                    if pixels.get('PhysicalSizeY'):
+                        vy = float(pixels.get('PhysicalSizeY'))
+                    if pixels.get('PhysicalSizeZ'):
+                        vz = float(pixels.get('PhysicalSizeZ'))
+        except Exception:
+            pass
+
+    # Fill in defaults
+    if vx is None: vx = DEFAULT_VOXEL_SIZE
+    if vy is None: vy = vx  # assume isotropic XY
+    if vz is None: vz = DEFAULT_VOXEL_SIZE
+
+    return [vz, vy, vx]
+
 
 def load_template(template_key):
     """Load and cache a template NRRD file."""
@@ -147,25 +213,15 @@ def check_orientation(sample_peaks, sample_proj_1d, template_key, template_info)
     return orientation_correct, changes, suggested_rotations
 
 
-def generate_thumbnail(proj_2d, vox_sizes, axis, figsize=(4, 4), dpi=100):
-    """Generate a base64 PNG thumbnail from a 2D max projection with proper aspect ratio."""
-    # Calculate aspect ratio based on voxel sizes
-    # proj_2d shape depends on which axis was projected out
-    if axis == 0:  # Z projection, showing (Y, X)
-        aspect = vox_sizes[1] / vox_sizes[2]  # Y/X
-    elif axis == 1:  # Y projection, showing (Z, X)
-        aspect = vox_sizes[0] / vox_sizes[2]  # Z/X
-    else:  # axis == 2, X projection, showing (Z, Y)
-        aspect = vox_sizes[0] / vox_sizes[1]  # Z/Y
+def generate_thumbnail(proj_2d, vox_sizes=None, axis=None, figsize=(4, 4), dpi=100):
+    """Generate a base64 PNG thumbnail from a 2D max projection.
 
-    # Adjust figsize based on aspect ratio to maintain reasonable thumbnail sizes
-    if aspect > 1:
-        figsize = (4, 4 * aspect)
-    else:
-        figsize = (4 / aspect, 4)
-
+    The image is stretched to fill the full canvas so both sample and
+    template thumbnails use the same visual area.  This is intentional:
+    the thumbnails are for orientation comparison, not exact proportions.
+    """
     fig, ax = plt.subplots(figsize=figsize)
-    ax.imshow(proj_2d, cmap='gray', aspect=aspect)
+    ax.imshow(proj_2d, cmap='gray', aspect='auto')
     ax.axis('off')
 
     buf = BytesIO()
@@ -251,8 +307,10 @@ def main():
             print(json.dumps({"error": "Image not found"}))
             sys.exit(1)
 
-    # Load full TIFF data
-    raw_data = tifffile.imread(str(tiff_file))
+    # Load full TIFF data and try to extract voxel sizes from metadata
+    with tifffile.TiffFile(str(tiff_file)) as tif:
+        raw_data = tif.asarray()
+        sample_vox = _extract_voxel_sizes(tif)
     original_shape = list(raw_data.shape)
     num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
 
@@ -281,8 +339,7 @@ def main():
 
     # Load template
     template_info = load_template(template_key)
-    template_vox = template_info['vox_sizes'] if template_info else [1.0, 1.0, 1.0]
-    sample_vox = [1.0, 1.0, 1.0]
+    template_vox = template_info['vox_sizes'] if template_info else [0.5, 0.5, 0.5]
 
     # Analyze background channel (for alignment comparison)
     sample_proj_2d, sample_proj_1d, sample_peaks = analyze_projections(bg_data, sample_vox)

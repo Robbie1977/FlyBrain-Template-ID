@@ -74,14 +74,16 @@
             text-align: center; background: #ecf0f1; padding: 6px; border-radius: 4px;
         }
         .thumb-pair {
-            display: flex; gap: 16px; justify-content: center; align-items: flex-start;
+            display: flex; gap: 16px; justify-content: center; align-items: center;
         }
-        .thumb-item { text-align: center; flex: 1; max-width: 50%; }
+        .thumb-item { text-align: center; flex: 0 1 auto; }
         .thumb-item p {
             font-size: 12px; margin-bottom: 6px; color: #7f8c8d; font-weight: bold;
         }
         .thumb-item img {
-            width: 100%; height: auto; border: 3px solid #ccc; border-radius: 4px;
+            height: 300px; width: auto;
+            object-fit: contain;
+            border: 3px solid #ccc; border-radius: 4px;
         }
         .thumb-item.sample img { border-color: #e74c3c; }
         .thumb-item.template img { border-color: #3498db; }
