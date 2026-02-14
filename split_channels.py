@@ -36,11 +36,11 @@ for nrrd_file in files_to_process:
         base = nrrd_file.stem
         
         # Signal channel (0)
-        signal_data = data[:, :, :, 0]
+        signal_data = data[:, :, :, 0].transpose(2, 1, 0)  # Transpose to X Y Z order
         signal_header = header.copy()
         signal_header['dimension'] = 3
         signal_header['space dimension'] = 3
-        signal_header['sizes'] = signal_data.shape[::-1]  # NRRD expects X Y Z
+        signal_header['sizes'] = signal_data.shape  # Now matches data shape
         signal_header['space directions'] = header['space directions']
         signal_header['space units'] = header['space units']
         signal_header['space origin'] = header.get('space origin', [0, 0, 0])
@@ -50,7 +50,7 @@ for nrrd_file in files_to_process:
         print(f"Created {signal_file}")
         
         # Background channel (1)
-        bg_data = data[:, :, :, 1]
+        bg_data = data[:, :, :, 1].transpose(2, 1, 0)  # Transpose to X Y Z order
         bg_header = signal_header.copy()
         bg_file = channels_dir / f"{base}_background.nrrd"
         nrrd.write(str(bg_file), bg_data, bg_header)

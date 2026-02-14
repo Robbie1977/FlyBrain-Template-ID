@@ -82,25 +82,27 @@ if [ ! -f "$bg_file" ]; then
     exit 1
 fi
 
-# Check if orientation correction is needed from orientations.json
+# Set space to LPS for input files (assuming orientation is already corrected)
+echo "  Setting space to left-posterior-superior for input files..."
+source venv/bin/activate && python3 -c "
+import nrrd
+import os
+
+# Set space for signal file
+data, header = nrrd.read('$signal_file')
+header['space'] = 'left-posterior-superior'
+nrrd.write('$signal_file', data, header)
+
+# Set space for background file
+data, header = nrrd.read('$bg_file')
+header['space'] = 'left-posterior-superior'
+nrrd.write('$bg_file', data, header)
+
+print('Space set to LPS for input files')
+"
+
+# Set moving_bg to bg_file (no orientation correction needed as it's already done)
 moving_bg="$bg_file"
-if [[ $base == "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1" ]]; then
-    echo "  Applying XY flip for orientation correction"
-    temp_bg="corrected/${base}_flipped_bg.nrrd"
-    source venv/bin/activate && python3 -c "
-from rotate_nrrd import flip_xy
-flip_xy('$bg_file', '$temp_bg')
-"
-    moving_bg="$temp_bg"
-elif [[ $base == "Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3" ]]; then
-    echo "  Applying Z flip for orientation correction"
-    temp_bg="corrected/${base}_flipped_bg.nrrd"
-    source venv/bin/activate && python3 -c "
-from rotate_nrrd import flip_z
-flip_z('$bg_file', '$temp_bg')
-"
-    moving_bg="$temp_bg"
-fi
 
 # Run registration
 echo "  Running CMTK registration..."
