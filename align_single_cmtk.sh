@@ -104,27 +104,53 @@ print('Space set to LPS for input files')
 # Set moving_bg to bg_file (no orientation correction needed as it's already done)
 moving_bg="$bg_file"
 
-# Run registration
-echo "  Running CMTK registration..."
+# Create initial affine transformation
+echo "  Creating initial affine transformation..."
+"$CMTK_BIN/make_initial_affine" \
+    --principal-axes \
+    "$template" "$moving_bg" \
+    "$xform_dir/initial.xform"
+
+# Run affine registration
+echo "  Running CMTK affine registration..."
 "$CMTK_BIN/registration" \
-    --auto-multi-levels 4 \
+    --initial "$xform_dir/initial.xform" \
     --dofs 6,12 \
-    --out-itk "$xform_dir/registration.xform" \
+    --auto-multi-levels 4 \
+    --outlist "$xform_dir/affine.xform" \
     "$template" "$moving_bg"
+
+# Clean up initial transform
+rm "$xform_dir/initial.xform"
+
+# Run non-linear warping
+echo "  Running CMTK non-linear warping..."
+"$CMTK_BIN/warp" \
+    --outlist "$xform_dir/warp.xform" \
+    --grid-spacing 80 \
+    --exploration 30 \
+    --coarsest 4 \
+    --accuracy 0.4 \
+    --refine 4 \
+    --energy-weight 1e-1 \
+    "$template" "$moving_bg" "$xform_dir/affine.xform"
+
+# Clean up affine transform
+rm "$xform_dir/affine.xform"
 
 # Apply to signal
 echo "  Applying transformation to signal..."
 "$CMTK_BIN/reformatx" \
     --floating "$signal_file" \
     --outfile "$output_signal_file" \
-    "$template" "$xform_dir/registration.xform"
+    "$template" "$xform_dir/warp.xform"
 
 # Apply to background
 echo "  Applying transformation to background..."
 "$CMTK_BIN/reformatx" \
     --floating "$moving_bg" \
     --outfile "$output_bg_file" \
-    "$template" "$xform_dir/registration.xform"
+    "$template" "$xform_dir/warp.xform"
 
 # Clean up temp
 if [[ $moving_bg != $bg_file ]]; then
