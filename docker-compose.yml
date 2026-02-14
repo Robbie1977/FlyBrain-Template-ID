@@ -1,0 +1,26 @@
+# ============================================================
+# FlyBrain Template ID — Docker Compose
+# ============================================================
+# Usage:
+#   docker compose up -d
+#
+# Place TIFF images in ./data/input/ (subdirectories supported).
+# Intermediate files go to ./data/processing/.
+# Final aligned NRRDs appear in ./data/output/.
+# ============================================================
+
+services:
+  flybrain:
+    build: .
+    image: virtualflybrain/flybrain-template-id:latest
+    container_name: flybrain-template-id
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/input:/data/input
+      - ./data/processing:/data/processing
+      - ./data/output:/data/output
+    environment:
+      - NODE_ENV=production
+      - OUTPUT_DIR=/data/output
+    restart: unless-stopped

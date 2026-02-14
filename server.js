@@ -1,5 +1,5 @@
 const express = require('express');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -28,12 +28,123 @@ function writeOrientations(data) {
     fs.writeFileSync(ORIENTATIONS_FILE, JSON.stringify(data, null, 2));
 }
 
+// --- Persistent alignment state ---
+const ALIGNMENT_STATE_FILE = path.join(__dirname, 'alignment_progress.json');
+
+const STAGE_PROGRESS = {
+    'initializing': 0,
+    'set_lps': 2,
+    'initial_affine': 5,
+    'affine_registration': 10,
+    'warp': 40,
+    'reformat_signal': 75,
+    'reformat_background': 85,
+    'thumbnails': 95,
+    'completed': 100
+};
+
+const STAGE_LABELS = {
+    'initializing': 'Initializing',
+    'set_lps': 'Setting LPS orientation',
+    'initial_affine': 'Initial affine transform',
+    'affine_registration': 'Affine registration',
+    'warp': 'Non-linear warping',
+    'reformat_signal': 'Reformatting signal',
+    'reformat_background': 'Reformatting background',
+    'thumbnails': 'Generating thumbnails',
+    'completed': 'Completed'
+};
+
+function readAlignmentState() {
+    try {
+        if (fs.existsSync(ALIGNMENT_STATE_FILE)) {
+            return JSON.parse(fs.readFileSync(ALIGNMENT_STATE_FILE, 'utf8'));
+        }
+    } catch (e) {
+        console.error('Failed to read alignment state:', e.message);
+    }
+    return { queue: [], jobs: {} };
+}
+
+function writeAlignmentState() {
+    const state = { queue: alignmentQueue, jobs: alignmentStatus };
+    try {
+        const tmp = ALIGNMENT_STATE_FILE + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+        fs.renameSync(tmp, ALIGNMENT_STATE_FILE);
+    } catch (e) {
+        console.error('Failed to write alignment state:', e.message);
+    }
+}
+
+function loadPersistedState() {
+    const state = readAlignmentState();
+    alignmentQueue = state.queue || [];
+    alignmentStatus = state.jobs || {};
+    // Mark 'processing' jobs as 'interrupted' — they'll be re-detected or re-queued
+    for (const key of Object.keys(alignmentStatus)) {
+        if (alignmentStatus[key].status === 'processing') {
+            alignmentStatus[key].status = 'interrupted';
+        }
+    }
+    currentAlignment = null;
+    console.log(`Loaded persisted state: ${Object.keys(alignmentStatus).length} jobs, ${alignmentQueue.length} queued`);
+}
+
+function getJobStageProgress(imageBase) {
+    // First try the per-job progress file written by align_single_cmtk.sh
+    const progressFile = path.join(__dirname, 'corrected', `${imageBase}_alignment_progress.json`);
+    try {
+        if (fs.existsSync(progressFile)) {
+            return JSON.parse(fs.readFileSync(progressFile, 'utf8'));
+        }
+    } catch (e) {}
+
+    // Fallback: infer stage from filesystem state
+    return inferStageFromFiles(imageBase);
+}
+
+function inferStageFromFiles(imageBase) {
+    const xformDir = path.join(__dirname, 'corrected', `${imageBase}_xform`);
+    const signalAligned = path.join(__dirname, 'corrected', `${imageBase}_signal_aligned.nrrd`);
+    const bgAligned = path.join(__dirname, 'corrected', `${imageBase}_background_aligned.nrrd`);
+    const thumbnails = path.join(__dirname, 'corrected', `${imageBase}_alignment_thumbnails.json`);
+
+    if (fs.existsSync(thumbnails)) {
+        return { current_stage: 'completed', stages: {} };
+    }
+    if (fs.existsSync(signalAligned) && fs.existsSync(bgAligned)) {
+        return { current_stage: 'thumbnails', stages: {} };
+    }
+    if (fs.existsSync(signalAligned)) {
+        return { current_stage: 'reformat_background', stages: {} };
+    }
+
+    if (!fs.existsSync(xformDir)) return null;
+
+    const warpXform = path.join(xformDir, 'warp.xform');
+    const affineXform = path.join(xformDir, 'affine.xform');
+    const initialXform = path.join(xformDir, 'initial.xform');
+
+    if (fs.existsSync(warpXform)) {
+        return { current_stage: 'reformat_signal', stages: {} };
+    }
+    if (fs.existsSync(affineXform)) {
+        return { current_stage: 'warp', stages: {} };
+    }
+    if (fs.existsSync(initialXform)) {
+        return { current_stage: 'affine_registration', stages: {} };
+    }
+
+    return { current_stage: 'initial_affine', stages: {} };
+}
+
 // Detect existing alignment processes from previous server sessions
 function detectRunningAlignments() {
-    // Check for both the wrapper script and the actual CMTK registration processes
-    exec('ps aux | grep -E "align_single_cmtk\\.sh|CMTK/bin/registration" | grep -v grep', (error, stdout) => {
+    exec('ps aux | grep -E "CMTK/bin/(registration|warp|reformatx|make_initial_affine)|align_single_cmtk\\.sh" | grep -v grep', (error, stdout) => {
         if (error || !stdout.trim()) {
             console.log('No existing alignment processes detected');
+            requeueInterruptedJobs();
             return;
         }
 
@@ -43,77 +154,109 @@ function detectRunningAlignments() {
         for (const line of lines) {
             // Match align_single_cmtk.sh wrapper
             let match = line.match(/align_single_cmtk\.sh\s+"?([^"\s]+)"?/);
-            if (match) {
-                runningImages.add(match[1].trim());
-                continue;
-            }
-            // Match CMTK registration process - extract image base from output path
-            match = line.match(/corrected\/([^_]+(?:_[^\/]+)*)_xform\/registration\.xform/);
-            if (match) {
-                runningImages.add(match[1].trim());
-            }
+            if (match) { runningImages.add(match[1].trim()); continue; }
+            // Match CMTK binary - extract image base from xform directory path
+            match = line.match(/corrected\/(.+?)_xform\//);
+            if (match) { runningImages.add(match[1].trim()); continue; }
+            // Match from channel file path
+            match = line.match(/channels\/(.+?)_(?:background|signal)\.nrrd/);
+            if (match) { runningImages.add(match[1].trim()); }
         }
 
         if (runningImages.size === 0) {
             console.log('No existing alignment processes detected');
+            requeueInterruptedJobs();
             return;
         }
 
-        // Track the first one as current (queue is sequential)
-        const firstImage = runningImages.values().next().value;
-        console.log(`Detected running alignment process for: ${firstImage}`);
-        currentAlignment = firstImage;
-        alignmentStatus[firstImage] = {
-            status: 'processing',
-            progress: 0,
-            error: '',
-            queued_at: new Date().toISOString()
-        };
-
-        // Track others as queued
         for (const imageBase of runningImages) {
-            if (imageBase !== firstImage) {
-                console.log(`Detected additional running alignment for: ${imageBase}`);
-                alignmentStatus[imageBase] = {
-                    status: 'processing',
-                    progress: 0,
-                    error: '',
-                    queued_at: new Date().toISOString()
-                };
-            }
+            console.log(`Detected running alignment for: ${imageBase}`);
+            alignmentStatus[imageBase] = {
+                status: 'processing',
+                progress: 0,
+                error: '',
+                queued_at: alignmentStatus[imageBase]?.queued_at || new Date().toISOString()
+            };
+            // Remove from queue if present
+            const idx = alignmentQueue.indexOf(imageBase);
+            if (idx > -1) alignmentQueue.splice(idx, 1);
         }
 
-        // Monitor existing processes by polling
+        // Set the first as current
+        currentAlignment = runningImages.values().next().value;
+        writeAlignmentState();
+
+        // Monitor these processes
         monitorExistingAlignments(runningImages);
+
+        // Re-queue any remaining interrupted jobs
+        requeueInterruptedJobs();
     });
+}
+
+function requeueInterruptedJobs() {
+    let changed = false;
+    for (const [imageBase, job] of Object.entries(alignmentStatus)) {
+        if (job.status === 'interrupted') {
+            console.log(`Re-queuing interrupted job: ${imageBase}`);
+            job.status = 'queued';
+            if (!alignmentQueue.includes(imageBase)) {
+                alignmentQueue.push(imageBase);
+            }
+            changed = true;
+        }
+    }
+    if (changed) writeAlignmentState();
+    processAlignmentQueue();
 }
 
 function monitorExistingAlignments(imageSet) {
     const checkInterval = setInterval(() => {
-        exec('ps aux | grep -E "align_single_cmtk\\.sh|CMTK/bin/registration" | grep -v grep', (error, stdout) => {
+        exec('ps aux | grep -E "CMTK/bin/(registration|warp|reformatx|make_initial_affine)|align_single_cmtk\\.sh" | grep -v grep', (error, stdout) => {
             const stillRunning = new Set();
             if (!error && stdout.trim()) {
                 const lines = stdout.trim().split('\n');
                 for (const line of lines) {
                     let match = line.match(/align_single_cmtk\.sh\s+"?([^"\s]+)"?/);
                     if (match) { stillRunning.add(match[1].trim()); continue; }
-                    match = line.match(/corrected\/([^_]+(?:_[^\/]+)*)_xform\/registration\.xform/);
+                    match = line.match(/corrected\/(.+?)_xform\//);
+                    if (match) { stillRunning.add(match[1].trim()); continue; }
+                    match = line.match(/channels\/(.+?)_(?:background|signal)\.nrrd/);
                     if (match) { stillRunning.add(match[1].trim()); }
+                }
+            }
+
+            // Update progress for still-running jobs from per-job files
+            for (const imageBase of imageSet) {
+                if (stillRunning.has(imageBase) && alignmentStatus[imageBase]) {
+                    const stageProgress = getJobStageProgress(imageBase);
+                    if (stageProgress) {
+                        const stage = stageProgress.current_stage || 'initializing';
+                        alignmentStatus[imageBase].progress = STAGE_PROGRESS[stage] || 0;
+                        alignmentStatus[imageBase].current_stage = stage;
+                        alignmentStatus[imageBase].stages = stageProgress.stages;
+                        alignmentStatus[imageBase].started_at = stageProgress.started_at || alignmentStatus[imageBase].started_at;
+                    }
                 }
             }
 
             // Check for any that finished
             for (const imageBase of imageSet) {
                 if (!stillRunning.has(imageBase) && alignmentStatus[imageBase]?.status === 'processing') {
-                    const xformDir = path.join(__dirname, 'corrected', `${imageBase}_xform`);
-                    if (fs.existsSync(xformDir)) {
+                    const signalFile = path.join(__dirname, 'corrected', `${imageBase}_signal_aligned.nrrd`);
+                    const bgFile = path.join(__dirname, 'corrected', `${imageBase}_background_aligned.nrrd`);
+                    const stageProgress = getJobStageProgress(imageBase);
+
+                    if (fs.existsSync(signalFile) && fs.existsSync(bgFile)) {
                         console.log(`Existing alignment completed for: ${imageBase}`);
                         alignmentStatus[imageBase] = {
                             ...alignmentStatus[imageBase],
                             status: 'completed',
                             progress: 100,
+                            current_stage: 'completed',
+                            stages: stageProgress?.stages || alignmentStatus[imageBase].stages,
                             error: '',
-                            completed_at: new Date().toISOString()
+                            completed_at: stageProgress?.completed_at || new Date().toISOString()
                         };
                     } else {
                         console.log(`Existing alignment appears to have failed for: ${imageBase}`);
@@ -121,7 +264,9 @@ function monitorExistingAlignments(imageSet) {
                             ...alignmentStatus[imageBase],
                             status: 'failed',
                             progress: 0,
-                            error: 'Process ended without producing output',
+                            current_stage: stageProgress?.current_stage || 'unknown',
+                            stages: stageProgress?.stages || alignmentStatus[imageBase].stages,
+                            error: stageProgress?.error || 'Process ended without producing output',
                             completed_at: new Date().toISOString()
                         };
                     }
@@ -129,6 +274,7 @@ function monitorExistingAlignments(imageSet) {
                     if (currentAlignment === imageBase) {
                         currentAlignment = null;
                     }
+                    writeAlignmentState();
                 }
             }
 
@@ -148,10 +294,10 @@ function processAlignmentQueue() {
     }
 
     // Check for any running CMTK processes before starting a new one
-    exec('ps aux | grep "CMTK/bin/registration" | grep -v grep', (error, stdout) => {
+    exec('ps aux | grep -E "CMTK/bin/(registration|warp|reformatx|make_initial_affine)" | grep -v grep', (error, stdout) => {
         if (!error && stdout.trim()) {
-            console.log('CMTK registration process already running, waiting...');
-            setTimeout(processAlignmentQueue, 30000); // Check again in 30 seconds
+            console.log('CMTK process already running, waiting...');
+            setTimeout(processAlignmentQueue, 30000);
             return;
         }
 
@@ -170,20 +316,68 @@ function startNextAlignment() {
         ...alignmentStatus[imageBase],
         status: 'processing',
         progress: 0,
-        error: ''
+        current_stage: 'initializing',
+        stages: {},
+        error: '',
+        started_at: new Date().toISOString()
     };
+    writeAlignmentState();
 
     console.log(`Starting alignment for: ${imageBase}`);
 
-    const timestamp = new Date().toISOString();
-    exec(`./align_single_cmtk.sh "${imageBase}"`, { timeout: 600000 }, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`Alignment failed for ${imageBase}:`, error);
+    // Set OUTPUT_DIR for Docker deployments (or when env is set)
+    const procEnv = { ...process.env };
+    if (process.env.OUTPUT_DIR) {
+        procEnv.OUTPUT_DIR = process.env.OUTPUT_DIR;
+    } else if (fs.existsSync('/data/output')) {
+        procEnv.OUTPUT_DIR = '/data/output';
+    }
+
+    const proc = spawn('bash', ['./align_single_cmtk.sh', imageBase], {
+        cwd: __dirname,
+        env: procEnv,
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let stderrData = '';
+
+    proc.stdout.on('data', (data) => {
+        console.log(`[align ${imageBase}] ${data.toString().trim()}`);
+    });
+
+    proc.stderr.on('data', (data) => {
+        stderrData += data.toString();
+        console.error(`[align ${imageBase} ERR] ${data.toString().trim()}`);
+    });
+
+    // Poll per-job progress file every 5 seconds
+    const progressInterval = setInterval(() => {
+        if (alignmentStatus[imageBase]?.status !== 'processing') {
+            clearInterval(progressInterval);
+            return;
+        }
+        const stageProgress = getJobStageProgress(imageBase);
+        if (stageProgress && alignmentStatus[imageBase]) {
+            const stage = stageProgress.current_stage || 'initializing';
+            alignmentStatus[imageBase].progress = STAGE_PROGRESS[stage] || 0;
+            alignmentStatus[imageBase].current_stage = stage;
+            alignmentStatus[imageBase].stages = stageProgress.stages;
+            alignmentStatus[imageBase].started_at = stageProgress.started_at || alignmentStatus[imageBase].started_at;
+        }
+    }, 5000);
+
+    proc.on('close', (code) => {
+        clearInterval(progressInterval);
+        const stageProgress = getJobStageProgress(imageBase);
+
+        if (code !== 0) {
+            console.error(`Alignment failed for ${imageBase} (exit code ${code})`);
             alignmentStatus[imageBase] = {
                 ...alignmentStatus[imageBase],
                 status: 'failed',
-                progress: 0,
-                error: error.message || 'Unknown error',
+                current_stage: stageProgress?.current_stage || 'unknown',
+                stages: stageProgress?.stages || {},
+                error: stageProgress?.error || stderrData.slice(-500) || `Exit code ${code}`,
                 completed_at: new Date().toISOString()
             };
         } else {
@@ -192,12 +386,29 @@ function startNextAlignment() {
                 ...alignmentStatus[imageBase],
                 status: 'completed',
                 progress: 100,
+                current_stage: 'completed',
+                stages: stageProgress?.stages || {},
                 error: '',
-                completed_at: new Date().toISOString()
+                completed_at: stageProgress?.completed_at || new Date().toISOString()
             };
         }
         currentAlignment = null;
-        // Process next in queue
+        writeAlignmentState();
+        setTimeout(processAlignmentQueue, 1000);
+    });
+
+    proc.on('error', (err) => {
+        clearInterval(progressInterval);
+        console.error(`Failed to start alignment for ${imageBase}:`, err);
+        alignmentStatus[imageBase] = {
+            ...alignmentStatus[imageBase],
+            status: 'failed',
+            progress: 0,
+            error: err.message,
+            completed_at: new Date().toISOString()
+        };
+        currentAlignment = null;
+        writeAlignmentState();
         setTimeout(processAlignmentQueue, 1000);
     });
 }
@@ -380,6 +591,7 @@ app.post('/api/queue-alignment', (req, res) => {
 
     preparingImages.add(imageBase);
     alignmentStatus[imageBase] = { status: 'preparing', progress: 0, error: '', queued_at: new Date().toISOString() };
+    writeAlignmentState();
     res.json({ success: true, message: 'Image preparation started - will be queued automatically when ready' });
 
     // Run preparation in the background
@@ -387,7 +599,6 @@ app.post('/api/queue-alignment', (req, res) => {
 });
 
 function prepareAndQueue(imageBase, needsNrrd) {
-    const { spawn } = require('child_process');
 
     function createChannelsThenQueue() {
         const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
@@ -407,6 +618,7 @@ function prepareAndQueue(imageBase, needsNrrd) {
             if (code !== 0) {
                 console.error(`Failed to create channel files for ${imageBase}`);
                 alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
+                writeAlignmentState();
                 return;
             }
             queueAlignment(imageBase);
@@ -416,6 +628,7 @@ function prepareAndQueue(imageBase, needsNrrd) {
             preparingImages.delete(imageBase);
             console.error(`Error running split_channels.py: ${err}`);
             alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
+            writeAlignmentState();
         });
     }
 
@@ -428,6 +641,7 @@ function prepareAndQueue(imageBase, needsNrrd) {
                 preparingImages.delete(imageBase);
                 console.error(`Failed to convert TIFF to NRRD for ${imageBase}`);
                 alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
+                writeAlignmentState();
                 return;
             }
             createChannelsThenQueue();
@@ -437,6 +651,7 @@ function prepareAndQueue(imageBase, needsNrrd) {
             preparingImages.delete(imageBase);
             console.error(`Error running convert_tiff_to_nrrd.py: ${err}`);
             alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
+            writeAlignmentState();
         });
     } else {
         createChannelsThenQueue();
@@ -448,7 +663,7 @@ function queueAlignment(imageBase) {
         alignmentQueue.push(imageBase);
         alignmentStatus[imageBase] = { status: 'queued', progress: 0, error: '', queued_at: new Date().toISOString() };
         console.log(`Added ${imageBase} to alignment queue`);
-        // Start processing if not already running
+        writeAlignmentState();
         processAlignmentQueue();
     }
 }
@@ -459,12 +674,26 @@ app.get('/api/alignment-status', (req, res) => {
         queuePosition[item] = index + 1;
     });
 
-    const jobs = Object.keys(alignmentStatus).map(imageBase => ({
-        image_base: imageBase,
-        ...alignmentStatus[imageBase],
-        queue_position: queuePosition[imageBase] || null,
-        is_current: currentAlignment === imageBase
-    }));
+    const jobs = Object.keys(alignmentStatus).map(imageBase => {
+        const job = { ...alignmentStatus[imageBase] };
+        // Merge per-job progress file for active jobs
+        if (job.status === 'processing') {
+            const stageProgress = getJobStageProgress(imageBase);
+            if (stageProgress) {
+                job.stages = stageProgress.stages || job.stages;
+                job.current_stage = stageProgress.current_stage || job.current_stage;
+                job.started_at = stageProgress.started_at || job.started_at;
+                job.progress = STAGE_PROGRESS[job.current_stage] || job.progress;
+            }
+        }
+        return {
+            image_base: imageBase,
+            ...job,
+            stage_labels: STAGE_LABELS,
+            queue_position: queuePosition[imageBase] || null,
+            is_current: currentAlignment === imageBase
+        };
+    });
 
     res.json(jobs);
 });
@@ -504,11 +733,13 @@ app.post('/api/reset-alignment', (req, res) => {
         alignmentQueue.splice(index, 1);
     }
 
+    writeAlignmentState();
     res.json({ success: true, message: `Alignment status reset for ${imageBase}` });
 });
 
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
-    // Detect and track any alignment processes still running from previous server sessions
+    // Load persisted state, then detect any running alignment processes
+    loadPersistedState();
     detectRunningAlignments();
 });

@@ -90,6 +90,41 @@
             border-radius: 3px; cursor: pointer; font-size: 11px; margin-top: 5px;
         }
         .retry-btn:hover { background: #e67e22; }
+
+        .progress-bar-container {
+            width: 100%; height: 20px; background: #ecf0f1; border-radius: 10px;
+            overflow: hidden; margin-top: 8px;
+        }
+        .progress-bar {
+            height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71);
+            border-radius: 10px; transition: width 0.5s ease;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 11px; font-weight: bold; min-width: 30px;
+        }
+
+        .stage-timeline { margin-top: 10px; }
+        .stage-item {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 12px; padding: 3px 0; color: #7f8c8d;
+        }
+        .stage-item.completed { color: #27ae60; }
+        .stage-item.active { color: #2c3e50; font-weight: bold; }
+        .stage-item .stage-icon { width: 16px; text-align: center; }
+        .stage-item .stage-duration {
+            margin-left: auto; font-family: monospace; font-size: 11px; color: #95a5a6;
+        }
+        .stage-item.completed .stage-duration { color: #27ae60; }
+        .stage-item.active .stage-duration { color: #e67e22; }
+
+        .elapsed-time { font-size: 12px; color: #e67e22; font-weight: bold; margin-left: 10px; }
+        .total-time { font-size: 12px; color: #27ae60; font-weight: bold; margin-top: 2px; }
+
+        .stage-toggle {
+            background: none; border: 1px solid #bdc3c7; color: #7f8c8d;
+            padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 11px;
+            margin-top: 6px;
+        }
+        .stage-toggle:hover { background: #ecf0f1; }
     </style>
 </head>
 <body>
@@ -241,18 +276,29 @@
                 return;
             }
 
-            const html = processing.map(job => `
-                <div class="job-item processing">
-                    <div class="job-info">
-                        <div class="job-name">${job.image_base}</div>
-                        <div class="job-status">Processing since ${formatTime(job.queued_at)}</div>
-                        <div class="job-time">Progress: ${job.progress || 0}%</div>
+            const html = processing.map(job => {
+                const progress = job.progress || 0;
+                const stageName = job.stage_labels?.[job.current_stage] || job.current_stage || 'Unknown';
+                const elapsed = job.started_at ? formatElapsed(job.started_at) : '';
+                const stageTimeline = renderStageTimeline(job);
+
+                return `
+                    <div class="job-item processing">
+                        <div class="job-info" style="width:100%">
+                            <div style="display:flex; align-items:center; justify-content:space-between">
+                                <div class="job-name">${job.image_base}</div>
+                                <span class="elapsed-time" data-started="${job.started_at || ''}">&#9202; ${elapsed}</span>
+                            </div>
+                            <div class="job-status">Stage: ${stageName}</div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" style="width:${Math.max(progress, 2)}%">${progress}%</div>
+                            </div>
+                            <button class="stage-toggle" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">Show stages</button>
+                            <div class="stage-timeline" style="display:none">${stageTimeline}</div>
+                        </div>
                     </div>
-                    <div class="job-meta">
-                        <div class="queue-position">PROCESSING</div>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
 
             container.innerHTML = `<div class="job-list">${html}</div>`;
         }
@@ -296,18 +342,27 @@
                 return;
             }
 
-            const html = completed.map(job => `
-                <div class="job-item completed">
-                    <div class="job-info">
-                        <div class="job-name">${job.image_base}</div>
-                        <div class="job-status">Completed at ${formatTime(job.completed_at)}</div>
-                        <div class="job-time">Queued: ${formatTime(job.queued_at)}</div>
+            const html = completed.map(job => {
+                const totalTime = (job.started_at && job.completed_at)
+                    ? formatDuration((new Date(job.completed_at) - new Date(job.started_at)) / 1000)
+                    : '';
+                const stageTimeline = renderStageTimeline(job);
+
+                return `
+                    <div class="job-item completed">
+                        <div class="job-info" style="width:100%">
+                            <div style="display:flex; align-items:center; justify-content:space-between">
+                                <div class="job-name">${job.image_base}</div>
+                                <div>&#9989; Success</div>
+                            </div>
+                            <div class="job-status">Completed ${formatTime(job.completed_at)}</div>
+                            ${totalTime ? `<div class="total-time">Total: ${totalTime}</div>` : ''}
+                            <button class="stage-toggle" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">Show stages</button>
+                            <div class="stage-timeline" style="display:none">${stageTimeline}</div>
+                        </div>
                     </div>
-                    <div class="job-meta">
-                        <div>✅ Success</div>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
 
             container.innerHTML = `<div class="job-list">${html}</div>`;
         }
@@ -322,20 +377,30 @@
                 return;
             }
 
-            const html = failed.map(job => `
-                <div class="job-item failed">
-                    <div class="job-info">
-                        <div class="job-name">${job.image_base}</div>
-                        <div class="job-status">Failed at ${formatTime(job.completed_at)}</div>
-                        <div class="job-time">Queued: ${formatTime(job.queued_at)}</div>
-                        <div class="error-msg">${job.error || 'Unknown error'}</div>
+            const html = failed.map(job => {
+                const failedStage = job.stage_labels?.[job.current_stage] || job.current_stage || '';
+                const stageTimeline = renderStageTimeline(job);
+
+                return `
+                    <div class="job-item failed">
+                        <div class="job-info" style="width:100%">
+                            <div style="display:flex; align-items:center; justify-content:space-between">
+                                <div class="job-name">${job.image_base}</div>
+                                <div>
+                                    &#10060; Failed
+                                    <button class="retry-btn" onclick="retryJob('${job.image_base}')">Retry</button>
+                                </div>
+                            </div>
+                            <div class="job-status">Failed ${formatTime(job.completed_at)}${failedStage ? ` at stage: ${failedStage}` : ''}</div>
+                            <div class="error-msg">${job.error || 'Unknown error'}</div>
+                            ${Object.keys(job.stages || {}).length > 0 ? `
+                                <button class="stage-toggle" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">Show stages</button>
+                                <div class="stage-timeline" style="display:none">${stageTimeline}</div>
+                            ` : ''}
+                        </div>
                     </div>
-                    <div class="job-meta">
-                        <div>❌ Failed</div>
-                        <button class="retry-btn" onclick="retryJob('${job.image_base}')">Retry</button>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
 
             container.innerHTML = `<div class="job-list">${html}</div>`;
         }
@@ -496,13 +561,82 @@
             return date.toLocaleString();
         }
 
+        function formatDuration(seconds) {
+            if (seconds == null || isNaN(seconds)) return '';
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            return `${h}h ${m}m`;
+        }
+
+        function formatElapsed(startIso) {
+            if (!startIso) return '';
+            const seconds = (Date.now() - new Date(startIso).getTime()) / 1000;
+            return formatDuration(seconds);
+        }
+
+        const ALL_STAGES = [
+            'set_lps', 'initial_affine', 'affine_registration',
+            'warp', 'reformat_signal', 'reformat_background', 'thumbnails'
+        ];
+
+        function renderStageTimeline(job) {
+            const stages = job.stages || {};
+            const currentStage = job.current_stage;
+            const labels = job.stage_labels || {};
+
+            return ALL_STAGES.map(stage => {
+                const info = stages[stage];
+                const label = labels[stage] || stage;
+                let icon = '&#9675;'; // empty circle
+                let cls = '';
+                let duration = '';
+
+                if (info && info.completed_at) {
+                    icon = '&#10003;'; // checkmark
+                    cls = 'completed';
+                    duration = info.duration_seconds != null ? formatDuration(info.duration_seconds) : '';
+                } else if (info && info.started_at && !info.completed_at) {
+                    icon = '&#9654;'; // play
+                    cls = 'active';
+                    duration = formatElapsed(info.started_at);
+                } else if (stage === currentStage) {
+                    icon = '&#9654;';
+                    cls = 'active';
+                }
+
+                return `<div class="stage-item ${cls}">
+                    <span class="stage-icon">${icon}</span>
+                    <span>${label}</span>
+                    <span class="stage-duration">${duration}</span>
+                </div>`;
+            }).join('');
+        }
+
         function showError(message) {
             // Simple error display - could be enhanced
             alert(message);
         }
 
-        // Auto-refresh every 30 seconds
-        setInterval(loadStatus, 30000);
+        // Auto-refresh every 10 seconds
+        setInterval(loadStatus, 10000);
+
+        // Update elapsed times every second without re-fetching
+        setInterval(() => {
+            document.querySelectorAll('.elapsed-time[data-started]').forEach(el => {
+                const started = el.getAttribute('data-started');
+                if (started) el.textContent = '\u23F2 ' + formatElapsed(started);
+            });
+            document.querySelectorAll('.stage-item.active .stage-duration').forEach(el => {
+                const row = el.closest('.stage-timeline');
+                if (!row) return;
+                const activeItems = row.querySelectorAll('.stage-item.active');
+                activeItems.forEach(item => {
+                    // Re-render would need start time; skip for now — covered by 10s refresh
+                });
+            });
+        }, 1000);
 
         // Initial load
         loadStatus();

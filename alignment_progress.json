@@ -1,0 +1,49 @@
+{
+  "queue": [
+    "BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite",
+    "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1",
+    "Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1",
+    "Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3",
+    "Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite"
+  ],
+  "jobs": {
+    "VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite": {
+      "status": "processing",
+      "progress": 10,
+      "error": "",
+      "queued_at": "2026-02-14T14:59:02.373Z",
+      "current_stage": "affine_registration",
+      "stages": {}
+    },
+    "BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite": {
+      "status": "queued",
+      "progress": 0,
+      "error": "",
+      "queued_at": "2026-02-14T15:02:16.546Z"
+    },
+    "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1": {
+      "status": "queued",
+      "progress": 0,
+      "error": "",
+      "queued_at": "2026-02-14T15:02:20.814Z"
+    },
+    "Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1": {
+      "status": "queued",
+      "progress": 0,
+      "error": "",
+      "queued_at": "2026-02-14T15:02:25.188Z"
+    },
+    "Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3": {
+      "status": "queued",
+      "progress": 0,
+      "error": "",
+      "queued_at": "2026-02-14T15:02:25.231Z"
+    },
+    "Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite": {
+      "status": "queued",
+      "progress": 0,
+      "error": "",
+      "queued_at": "2026-02-14T15:02:25.234Z"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+# Don't send data/build artifacts into Docker context
+.git
+.github
+.vscode
+.claude
+__pycache__
+*.pyc
+*.pyo
+venv/
+node_modules/
+data/
+
+# Large data files — never part of the image
+Images/
+_backups/
+channels/
+corrected/
+nrrd_output/
+aligned_output/
+CMTK/
+
+# Temp / analysis scripts not needed in container
+_test_shape_bug.py
+test_*.py
+debug_*.py
+compare_*.py
+analyze_*.py
+visualize_*.py
+final_visualization.py
+quick_*.py
+vnc_*.py
+histogram_*.md
+anatomical_*.md
+orientation_analysis_report.pdf
+api_response.json
+test_thumb.png
+*.md
+!README.md
+fix_headers*.py
+rotate_nrrd.py
+rotate_all_channels.py
+check_xy_projection.py
+generate_orientation_pdf.py
+demonstrate_navis_usage.py
+simple_alignment.py
+detailed_vnc_analysis.py
+alignment_progress.json
