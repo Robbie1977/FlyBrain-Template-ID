@@ -14,7 +14,8 @@ app.use(express.static('public'));
 // Alignment queue
 let alignmentQueue = [];
 let currentAlignment = null;
-let alignmentStatus = {}; // image_base -> { status: 'queued|processing|completed|failed', progress: 0-100, error: '' }
+let alignmentStatus = {}; // image_base -> { status: 'preparing|queued|processing|completed|failed', progress: 0-100, error: '' }
+let preparingImages = new Set(); // Track images currently being prepared (NRRD/channel creation)
 
 function readOrientations() {
     if (fs.existsSync(ORIENTATIONS_FILE)) {
@@ -27,15 +28,150 @@ function writeOrientations(data) {
     fs.writeFileSync(ORIENTATIONS_FILE, JSON.stringify(data, null, 2));
 }
 
+// Detect existing alignment processes from previous server sessions
+function detectRunningAlignments() {
+    // Check for both the wrapper script and the actual CMTK registration processes
+    exec('ps aux | grep -E "align_single_cmtk\\.sh|CMTK/bin/registration" | grep -v grep', (error, stdout) => {
+        if (error || !stdout.trim()) {
+            console.log('No existing alignment processes detected');
+            return;
+        }
+
+        const lines = stdout.trim().split('\n');
+        const runningImages = new Set();
+
+        for (const line of lines) {
+            // Match align_single_cmtk.sh wrapper
+            let match = line.match(/align_single_cmtk\.sh\s+"?([^"\s]+)"?/);
+            if (match) {
+                runningImages.add(match[1].trim());
+                continue;
+            }
+            // Match CMTK registration process - extract image base from output path
+            match = line.match(/corrected\/([^_]+(?:_[^\/]+)*)_xform\/registration\.xform/);
+            if (match) {
+                runningImages.add(match[1].trim());
+            }
+        }
+
+        if (runningImages.size === 0) {
+            console.log('No existing alignment processes detected');
+            return;
+        }
+
+        // Track the first one as current (queue is sequential)
+        const firstImage = runningImages.values().next().value;
+        console.log(`Detected running alignment process for: ${firstImage}`);
+        currentAlignment = firstImage;
+        alignmentStatus[firstImage] = {
+            status: 'processing',
+            progress: 0,
+            error: '',
+            queued_at: new Date().toISOString()
+        };
+
+        // Track others as queued
+        for (const imageBase of runningImages) {
+            if (imageBase !== firstImage) {
+                console.log(`Detected additional running alignment for: ${imageBase}`);
+                alignmentStatus[imageBase] = {
+                    status: 'processing',
+                    progress: 0,
+                    error: '',
+                    queued_at: new Date().toISOString()
+                };
+            }
+        }
+
+        // Monitor existing processes by polling
+        monitorExistingAlignments(runningImages);
+    });
+}
+
+function monitorExistingAlignments(imageSet) {
+    const checkInterval = setInterval(() => {
+        exec('ps aux | grep -E "align_single_cmtk\\.sh|CMTK/bin/registration" | grep -v grep', (error, stdout) => {
+            const stillRunning = new Set();
+            if (!error && stdout.trim()) {
+                const lines = stdout.trim().split('\n');
+                for (const line of lines) {
+                    let match = line.match(/align_single_cmtk\.sh\s+"?([^"\s]+)"?/);
+                    if (match) { stillRunning.add(match[1].trim()); continue; }
+                    match = line.match(/corrected\/([^_]+(?:_[^\/]+)*)_xform\/registration\.xform/);
+                    if (match) { stillRunning.add(match[1].trim()); }
+                }
+            }
+
+            // Check for any that finished
+            for (const imageBase of imageSet) {
+                if (!stillRunning.has(imageBase) && alignmentStatus[imageBase]?.status === 'processing') {
+                    const xformDir = path.join(__dirname, 'corrected', `${imageBase}_xform`);
+                    if (fs.existsSync(xformDir)) {
+                        console.log(`Existing alignment completed for: ${imageBase}`);
+                        alignmentStatus[imageBase] = {
+                            ...alignmentStatus[imageBase],
+                            status: 'completed',
+                            progress: 100,
+                            error: '',
+                            completed_at: new Date().toISOString()
+                        };
+                    } else {
+                        console.log(`Existing alignment appears to have failed for: ${imageBase}`);
+                        alignmentStatus[imageBase] = {
+                            ...alignmentStatus[imageBase],
+                            status: 'failed',
+                            progress: 0,
+                            error: 'Process ended without producing output',
+                            completed_at: new Date().toISOString()
+                        };
+                    }
+                    imageSet.delete(imageBase);
+                    if (currentAlignment === imageBase) {
+                        currentAlignment = null;
+                    }
+                }
+            }
+
+            // If all monitored processes are done, stop polling and process queue
+            if (imageSet.size === 0) {
+                clearInterval(checkInterval);
+                setTimeout(processAlignmentQueue, 1000);
+            }
+        });
+    }, 10000); // Check every 10 seconds
+}
+
 // Process alignment queue
 function processAlignmentQueue() {
     if (currentAlignment || alignmentQueue.length === 0) {
         return;
     }
 
+    // Check for any running CMTK processes before starting a new one
+    exec('ps aux | grep "CMTK/bin/registration" | grep -v grep', (error, stdout) => {
+        if (!error && stdout.trim()) {
+            console.log('CMTK registration process already running, waiting...');
+            setTimeout(processAlignmentQueue, 30000); // Check again in 30 seconds
+            return;
+        }
+
+        startNextAlignment();
+    });
+}
+
+function startNextAlignment() {
+    if (currentAlignment || alignmentQueue.length === 0) {
+        return;
+    }
+
     currentAlignment = alignmentQueue.shift();
     const imageBase = currentAlignment;
-    alignmentStatus[imageBase] = { status: 'processing', progress: 0, error: '' };
+    alignmentStatus[imageBase] = {
+        ...alignmentStatus[imageBase],
+        status: 'processing',
+        progress: 0,
+        error: ''
+    };
 
     console.log(`Starting alignment for: ${imageBase}`);
 
@@ -43,17 +179,19 @@ function processAlignmentQueue() {
     exec(`./align_single_cmtk.sh "${imageBase}"`, { timeout: 600000 }, (error, stdout, stderr) => {
         if (error) {
             console.error(`Alignment failed for ${imageBase}:`, error);
-            alignmentStatus[imageBase] = { 
-                status: 'failed', 
-                progress: 0, 
+            alignmentStatus[imageBase] = {
+                ...alignmentStatus[imageBase],
+                status: 'failed',
+                progress: 0,
                 error: error.message || 'Unknown error',
                 completed_at: new Date().toISOString()
             };
         } else {
             console.log(`Alignment completed for: ${imageBase}`);
-            alignmentStatus[imageBase] = { 
-                status: 'completed', 
-                progress: 100, 
+            alignmentStatus[imageBase] = {
+                ...alignmentStatus[imageBase],
+                status: 'completed',
+                progress: 100,
                 error: '',
                 completed_at: new Date().toISOString()
             };
@@ -203,6 +341,16 @@ app.post('/api/queue-alignment', (req, res) => {
         return res.status(400).json({ error: 'Missing image_base' });
     }
 
+    // Prevent duplicate preparation
+    if (preparingImages.has(imageBase)) {
+        return res.json({ success: true, message: 'Image is already being prepared for alignment' });
+    }
+
+    // Prevent re-queuing if already queued/processing
+    if (alignmentQueue.includes(imageBase) || alignmentStatus[imageBase]?.status === 'processing') {
+        return res.json({ success: true, message: 'Image is already queued or processing' });
+    }
+
     const saved = readOrientations();
     // Find the image by base name
     const imageKey = Object.keys(saved).find(key => key.split('/').pop() === imageBase);
@@ -210,76 +358,89 @@ app.post('/api/queue-alignment', (req, res) => {
         return res.status(400).json({ error: 'Image must be approved before queuing for alignment' });
     }
 
-    // Check if NRRD file exists, create it if not
+    // Check if NRRD file exists
     const nrrdFile = path.join(__dirname, 'nrrd_output', `${imageBase}.nrrd`);
     const tiffFile = path.join(__dirname, 'Images', imageKey + '.tif');
+    const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
+    const backgroundFile = path.join(__dirname, 'channels', `${imageBase}_background.nrrd`);
 
-    if (!fs.existsSync(nrrdFile)) {
-        if (!fs.existsSync(tiffFile)) {
-            return res.status(400).json({ error: 'Source TIFF file not found' });
+    const needsNrrd = !fs.existsSync(nrrdFile);
+    const needsChannels = !fs.existsSync(signalFile) || !fs.existsSync(backgroundFile);
+
+    // If all prerequisites exist, queue immediately
+    if (!needsNrrd && !needsChannels) {
+        queueAlignment(imageBase);
+        return res.json({ success: true, message: 'Image queued for CMTK alignment' });
+    }
+
+    // Prerequisites need to be created - respond immediately and prepare in background
+    if (needsNrrd && !fs.existsSync(tiffFile)) {
+        return res.status(400).json({ error: 'Source TIFF file not found' });
+    }
+
+    preparingImages.add(imageBase);
+    alignmentStatus[imageBase] = { status: 'preparing', progress: 0, error: '', queued_at: new Date().toISOString() };
+    res.json({ success: true, message: 'Image preparation started - will be queued automatically when ready' });
+
+    // Run preparation in the background
+    prepareAndQueue(imageBase, needsNrrd);
+});
+
+function prepareAndQueue(imageBase, needsNrrd) {
+    const { spawn } = require('child_process');
+
+    function createChannelsThenQueue() {
+        const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
+        const backgroundFile = path.join(__dirname, 'channels', `${imageBase}_background.nrrd`);
+
+        if (fs.existsSync(signalFile) && fs.existsSync(backgroundFile)) {
+            preparingImages.delete(imageBase);
+            queueAlignment(imageBase);
+            return;
         }
 
-        console.log(`NRRD file missing for ${imageBase}, converting from TIFF...`);
+        console.log(`Channel files missing for ${imageBase}, creating them...`);
+        const splitProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 split_channels.py ' + imageBase], { cwd: __dirname });
 
-        // Run convert_tiff_to_nrrd.py to create the NRRD file
-        const { spawn } = require('child_process');
+        splitProcess.on('close', (code) => {
+            preparingImages.delete(imageBase);
+            if (code !== 0) {
+                console.error(`Failed to create channel files for ${imageBase}`);
+                alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
+                return;
+            }
+            queueAlignment(imageBase);
+        });
+
+        splitProcess.on('error', (err) => {
+            preparingImages.delete(imageBase);
+            console.error(`Error running split_channels.py: ${err}`);
+            alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
+        });
+    }
+
+    if (needsNrrd) {
+        console.log(`NRRD file missing for ${imageBase}, converting from TIFF...`);
         const convertProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + imageBase], { cwd: __dirname });
 
         convertProcess.on('close', (code) => {
             if (code !== 0) {
+                preparingImages.delete(imageBase);
                 console.error(`Failed to convert TIFF to NRRD for ${imageBase}`);
-                return res.status(500).json({ error: 'Failed to convert TIFF to NRRD' });
+                alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
+                return;
             }
-
-            // Now check/create channel files
-            checkAndCreateChannels(imageBase, res);
+            createChannelsThenQueue();
         });
 
         convertProcess.on('error', (err) => {
+            preparingImages.delete(imageBase);
             console.error(`Error running convert_tiff_to_nrrd.py: ${err}`);
-            res.status(500).json({ error: 'Failed to convert TIFF to NRRD' });
+            alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
         });
-
-        return; // Don't queue yet, wait for conversion
+    } else {
+        createChannelsThenQueue();
     }
-
-    // NRRD exists, check/create channel files
-    checkAndCreateChannels(imageBase, res);
-});
-
-function checkAndCreateChannels(imageBase, res) {
-    const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
-    const backgroundFile = path.join(__dirname, 'channels', `${imageBase}_background.nrrd`);
-
-    if (!fs.existsSync(signalFile) || !fs.existsSync(backgroundFile)) {
-        console.log(`Channel files missing for ${imageBase}, creating them...`);
-
-        // Run split_channels.py to create the channel files
-        const { spawn } = require('child_process');
-        const splitProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 split_channels.py ' + imageBase], { cwd: __dirname });
-
-        splitProcess.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`Failed to create channel files for ${imageBase}`);
-                return res.status(500).json({ error: 'Failed to create channel files' });
-            }
-
-            // Now queue the alignment
-            queueAlignment(imageBase);
-            res.json({ success: true, message: 'Channel files created and image queued for CMTK alignment' });
-        });
-
-        splitProcess.on('error', (err) => {
-            console.error(`Error running split_channels.py: ${err}`);
-            res.status(500).json({ error: 'Failed to create channel files' });
-        });
-
-        return; // Don't queue yet, wait for channel creation
-    }
-
-    // Channel files exist, queue immediately
-    queueAlignment(imageBase);
-    res.json({ success: true, message: 'Image queued for CMTK alignment' });
 }
 
 function queueAlignment(imageBase) {
@@ -327,6 +488,27 @@ app.get('/api/alignment-thumbnails', (req, res) => {
     }
 });
 
+app.post('/api/reset-alignment', (req, res) => {
+    const imageBase = req.body.image_base;
+    if (!imageBase) {
+        return res.status(400).json({ error: 'Missing image_base' });
+    }
+
+    if (alignmentStatus[imageBase]) {
+        delete alignmentStatus[imageBase];
+    }
+
+    // Remove from queue if present
+    const index = alignmentQueue.indexOf(imageBase);
+    if (index > -1) {
+        alignmentQueue.splice(index, 1);
+    }
+
+    res.json({ success: true, message: `Alignment status reset for ${imageBase}` });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
+    // Detect and track any alignment processes still running from previous server sessions
+    detectRunningAlignments();
 });

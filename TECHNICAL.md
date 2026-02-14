@@ -1,6 +1,6 @@
 # FlyBrain-Template-ID — Technical Documentation
 
-> **Last updated:** 2026-02-13
+> **Last updated:** 2026-02-14
 > **Repository:** [Robbie1977/FlyBrain-Template-ID](https://github.com/Robbie1977/FlyBrain-Template-ID)
 
 ## 1. System Overview
@@ -11,37 +11,57 @@ This is a web application for reviewing and correcting the anatomical orientatio
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Browser (public/index.html)                             │
-│  ┌─ Image selector / navigation ──────────────────────┐  │
-│  │  ┌─ Thumbnail cards (3 projection axes) ────────┐  │  │
-│  │  │  Sample MIP  │  Template MIP                  │  │  │
-│  │  │  [Rotation toolbar]  [Per-view CW/CCW/Swap]   │  │  │
-│  │  └──────────────────────────────────────────────┘  │  │
-│  │  Histograms · Manual rotation dropdowns · Approve  │  │
-│  └────────────────────────────────────────────────────┘  │
-│              ▲ JSON over HTTP ▼                           │
-├──────────────────────────────────────────────────────────┤
-│  Express server (server.js:3000)                         │
-│    GET  /api/images       → list TIFFs                   │
-│    GET  /api/image?name=  → exec get_image_data.py       │
-│    POST /api/rotate       → exec apply_rotation.py       │
-│    POST /api/reset        → exec reset_rotation.py       │
-│    POST /api/save         → write orientations.json      │
-│    POST /api/approve      → write orientations.json      │
-│    GET  /api/saved        → read orientations.json       │
-├──────────────────────────────────────────────────────────┤
-│  Python scripts (venv: numpy scipy matplotlib nrrd       │
-│                         tifffile)                        │
-│    get_image_data.py   – analysis + thumbnail gen        │
-│    apply_rotation.py   – 90° numpy rotation on TIFF     │
-│    reset_rotation.py   – restore from _backups/          │
-├──────────────────────────────────────────────────────────┤
-│  Filesystem                                              │
-│    Images/<submitter>/*.tif   – source TIFFs (4D ZCYX)  │
-│    _backups/<submitter>/*.tif – pristine originals       │
-│    *.nrrd                     – template volumes         │
-│    orientations.json          – per-image state          │
-└──────────────────────────────────────────────────────────┘
+│  Browser                                                  │
+│  ┌─ public/index.html ─────────────────────────────────┐  │
+│  │  Image selector / navigation                         │  │
+│  │  Thumbnail cards (3 axes) · Rotation toolbar         │  │
+│  │  Histograms · Manual corrections · Approve           │  │
+│  └──────────────────────────────────────────────────────┘  │
+│  ┌─ public/alignment-status.html ───────────────────────┐  │
+│  │  Alignment queue overview · Queue/Preparing/Processing│  │
+│  │  Completed/Failed jobs · Queue All Approved           │  │
+│  └──────────────────────────────────────────────────────┘  │
+│              ▲ JSON over HTTP ▼                            │
+├───────────────────────────────────────────────────────────┤
+│  Express server (server.js:3000)                          │
+│  ┌─ Orientation Review API ────────────────────────────┐  │
+│  │  GET  /api/images        → list TIFFs               │  │
+│  │  GET  /api/image?name=   → exec get_image_data.py   │  │
+│  │  POST /api/rotate        → exec apply_rotation.py   │  │
+│  │  POST /api/reset         → exec reset_rotation.py   │  │
+│  │  POST /api/save          → write orientations.json  │  │
+│  │  POST /api/approve       → write orientations.json  │  │
+│  │  GET  /api/saved         → read orientations.json   │  │
+│  └─────────────────────────────────────────────────────┘  │
+│  ┌─ Alignment Queue API ──────────────────────────────┐   │
+│  │  POST /api/queue-alignment  → prepare & queue       │  │
+│  │  GET  /api/alignment-status → job status list       │  │
+│  │  GET  /api/alignment-thumbnails → result images     │  │
+│  │  POST /api/reset-alignment  → clear job status      │  │
+│  └─────────────────────────────────────────────────────┘  │
+│  ┌─ Alignment Queue Engine (in-memory) ────────────────┐  │
+│  │  prepareAndQueue() → convert_tiff_to_nrrd.py        │  │
+│  │                    → split_channels.py               │  │
+│  │  processAlignmentQueue() → align_single_cmtk.sh     │  │
+│  │  detectRunningAlignments() → monitor existing procs  │  │
+│  └─────────────────────────────────────────────────────┘  │
+├───────────────────────────────────────────────────────────┤
+│  Scripts                                                   │
+│    Python (venv): get_image_data.py, apply_rotation.py,   │
+│      reset_rotation.py, split_channels.py,                │
+│      convert_tiff_to_nrrd.py                              │
+│    Bash: align_single_cmtk.sh → CMTK/bin/{registration,  │
+│                                             reformatx}    │
+├───────────────────────────────────────────────────────────┤
+│  Filesystem                                                │
+│    Images/<submitter>/*.tif    – source TIFFs (4D ZCYX)   │
+│    _backups/<submitter>/*.tif  – pristine originals        │
+│    *.nrrd                      – template volumes          │
+│    orientations.json           – per-image state           │
+│    nrrd_output/                – converted NRRDs from TIFF │
+│    channels/                   – split signal/background   │
+│    corrected/                  – CMTK alignment outputs    │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -50,21 +70,26 @@ This is a web application for reviewing and correcting the anatomical orientatio
 
 | Path | Purpose |
 |---|---|
-| `server.js` | Express HTTP server (port 3000) |
-| `public/index.html` | Single-page frontend (HTML + CSS + JS) |
+| `server.js` | Express HTTP server (port 3000) with orientation review and alignment queue APIs |
+| `public/index.html` | Orientation review frontend (HTML + CSS + JS) |
+| `public/alignment-status.html` | Alignment queue status/monitoring frontend |
 | `get_image_data.py` | Load TIFF, compare to template, output JSON with base64 thumbnails |
 | `apply_rotation.py` | Apply 90° rotation(s) to TIFF, overwrite in-place |
 | `reset_rotation.py` | Restore TIFF from `_backups/` (or legacy `.original`) |
+| `split_channels.py` | Split multi-channel NRRD into separate signal and background files |
+| `convert_tiff_to_nrrd.py` | Convert TIFF images to NRRD format with metadata preservation |
+| `align_single_cmtk.sh` | Run CMTK registration and reformatting for a single image |
 | `orientations.json` | Persistent per-image state (auto-analysis + manual corrections + approval) |
 | `Images/` | Source TIFF images, organised by submitter subdirectory |
 | `_backups/` | Pristine original TIFFs, mirrors `Images/` structure |
-| `JRC2018U_template_lps.nrrd` | Brain template – LPS orientation (primary) |
-| `JRC2018U_template.nrrd` | Brain template – original orientation |
+| `JRC2018U_template_lps.nrrd` | Brain template -- LPS orientation (primary) |
+| `JRC2018U_template.nrrd` | Brain template -- original orientation |
 | `JRCVNC2018U_template.nrrd` | VNC template |
-| `JRCVNC2018U_template_lps.nrrd` | VNC template – LPS orientation |
-| `channels/` | Pre-split background/signal NRRDs (from `split_channels.py`) |
-| `nrrd_output/` | Converted NRRDs (from `convert_tiff_to_nrrd.py`) |
-| `aligned_output/` | CMTK alignment output directories |
+| `JRCVNC2018U_template_lps.nrrd` | VNC template -- LPS orientation |
+| `nrrd_output/` | Converted NRRDs from TIFF (created by `convert_tiff_to_nrrd.py`) |
+| `channels/` | Split background/signal NRRDs (created by `split_channels.py`) |
+| `corrected/` | CMTK alignment outputs: `*_xform/` transforms, `*_aligned.nrrd` results, `*_alignment_thumbnails.json` |
+| `CMTK/bin/` | CMTK command-line tools (`registration`, `reformatx`, etc.) |
 | `venv/` | Python virtual environment |
 
 ---
@@ -91,6 +116,7 @@ Body: `{ "rotations": { "x": 0, "y": 90, "z": 0 } }`
 
 - Calls `apply_rotation.py "<name>" '<json>'` to rotate the TIFF on disk.
 - The TIFF is modified **in-place** (both channels).
+- After success, resets `manual_corrections.rotations` to `{ x: 0, y: 0, z: 0 }` in `orientations.json` (since the rotation has been baked into the file).
 - After success, the frontend reloads the image to get updated thumbnails.
 
 ### `POST /api/reset?name=<path>`
@@ -108,6 +134,51 @@ Requires the image to have been saved first.
 
 ### `GET /api/saved`
 Returns the full `orientations.json` as a JSON object.
+
+### `POST /api/queue-alignment`
+Body: `{ "image_base": "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1" }`
+
+Queues an approved image for CMTK alignment. The `image_base` is the filename without directory prefix or extension.
+
+- **Prerequisite checks:** The image must exist in `orientations.json` and have `approved: true`.
+- **Duplicate prevention:** Returns success immediately if the image is already being prepared, is already queued, or is currently processing.
+- **Preparation pipeline:** If the NRRD or channel files are missing, the server responds immediately with status `preparing` and runs conversion/splitting in the background:
+  1. If `nrrd_output/<image_base>.nrrd` is missing → runs `convert_tiff_to_nrrd.py` in background
+  2. If `channels/<image_base>_signal.nrrd` or `channels/<image_base>_background.nrrd` is missing → runs `split_channels.py` in background
+  3. Once all prerequisites exist, the image is automatically moved to `queued` status
+- **If all prerequisites exist:** The image is queued immediately.
+- Returns: `{ "success": true, "message": "..." }` with context-specific message.
+
+### `GET /api/alignment-status`
+Returns a JSON array of all alignment job objects:
+```json
+[
+  {
+    "image_base": "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1",
+    "status": "queued",
+    "progress": 0,
+    "error": "",
+    "queued_at": "2026-02-14T10:55:48.599Z",
+    "queue_position": 1,
+    "is_current": false
+  }
+]
+```
+
+Status values: `preparing` | `queued` | `processing` | `completed` | `failed`.
+Additional fields on completion: `completed_at` (ISO timestamp). On failure: `error` (string).
+
+### `GET /api/alignment-thumbnails?image_base=<name>`
+Returns the alignment result thumbnails for a completed job.
+
+- Reads from `corrected/<image_base>_alignment_thumbnails.json`.
+- Returns JSON with `thumbnails` object containing base64-encoded PNG images for each axis (template and aligned versions).
+- Returns 404 if thumbnails not found (alignment may not be complete).
+
+### `POST /api/reset-alignment`
+Body: `{ "image_base": "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1" }`
+
+Clears alignment tracking for an image. Removes it from the in-memory status map and the queue (if present). Does **not** delete any files on disk.
 
 ---
 
@@ -214,6 +285,61 @@ Uses `np.rot90(data, k=degrees//90, axes=axis_mapping[axis])`.
 
 Copies the backup over the current file using `shutil.copy2` (preserves metadata).
 
+### 4.4. `convert_tiff_to_nrrd.py`
+
+**Purpose:** Convert TIFF image files to NRRD format for use with CMTK alignment tools.
+
+**Invocation:** `python3 convert_tiff_to_nrrd.py [image_base]`
+
+- If `image_base` is provided, converts only the matching TIFF from `Images/`.
+- If omitted, converts all TIFFs in `Images/` recursively.
+- Output directory: `nrrd_output/`
+
+**Metadata extraction:**
+- Reads ImageJ metadata (`spacing`, `unit`) for Z voxel size
+- Reads `XResolution`/`YResolution` TIFF tags for XY voxel size
+- Defaults to 1.0 if metadata is unavailable
+
+**Shape handling:**
+- 4D `[Z, C, Y, X]` → transposed to `[Z, Y, X, C]` for NRRD (multi-channel preserved)
+- 3D `[Z, Y, X]` → saved directly
+- 2D → transposed to `[X, Y]`
+
+### 4.5. `split_channels.py`
+
+**Purpose:** Split multi-channel NRRD files into separate signal and background channel files.
+
+**Invocation:** `python3 split_channels.py [image_base]`
+
+- If `image_base` is provided, processes only `nrrd_output/<image_base>.nrrd`.
+- If omitted, processes all NRRDs in `nrrd_output/`.
+- Output directory: `channels/`
+- Output files: `<image_base>_signal.nrrd` (channel 0) and `<image_base>_background.nrrd` (channel 1)
+
+**Processing:**
+- Expects 4D data with shape `[Z, Y, X, 2]` (2 channels)
+- Each channel is extracted and transposed to `[X, Y, Z]` order for CMTK compatibility
+- 3D NRRD header is constructed from the 4D source header
+- Skips files that are not 4D with exactly 2 channels
+
+### 4.6. `align_single_cmtk.sh`
+
+**Purpose:** Run the full CMTK alignment pipeline for a single image against the appropriate template.
+
+**Invocation:** `./align_single_cmtk.sh <image_base>`
+
+**Pipeline steps:**
+1. **Template selection:** If `image_base` contains `VNC` → `JRCVNC2018U_template_lps.nrrd`, otherwise → `JRC2018U_template_lps.nrrd`
+2. **LPS template creation:** If the LPS template doesn't exist, creates it by setting `space = 'left-posterior-superior'` on the base template
+3. **Set input space:** Sets `space = 'left-posterior-superior'` on the signal and background channel files
+4. **CMTK registration:** Runs `CMTK/bin/registration` with `--auto-multi-levels 4 --dofs 6,12` using the background channel against the template. Output: `corrected/<image_base>_xform/registration.xform`
+5. **Apply transform:** Runs `CMTK/bin/reformatx` to warp both signal and background channels using the computed transform. Output: `corrected/<image_base>_signal_aligned.nrrd` and `corrected/<image_base>_background_aligned.nrrd`
+6. **Generate thumbnails:** Creates MIP comparison thumbnails (template vs aligned) for each axis and saves to `corrected/<image_base>_alignment_thumbnails.json`
+
+**Input files required:** `channels/<image_base>_signal.nrrd` and `channels/<image_base>_background.nrrd`
+
+**Timeout:** 600 seconds (set in `server.js`)
+
 ---
 
 ## 5. Backup Mechanism
@@ -234,7 +360,7 @@ Previously, backups were created as `filename.original.tif` next to the original
 
 ---
 
-## 6. Frontend Architecture (`public/index.html`)
+## 6. Frontend Architecture
 
 ### 6.1. Page Structure
 
@@ -349,6 +475,38 @@ The preview system keeps these in sync:
 Changes flow **bidirectionally**:
 - Toolbar/per-view buttons → `applyPreviewRotation()` → update matrix → `updateRotationPreview()` → update dropdowns + thumbnails
 - Manual dropdown changes → `syncPreviewFromDropdowns()` → recompute matrix → `updateRotationPreview()` → update thumbnails
+
+### 6.3. Alignment Status Page (`public/alignment-status.html`)
+
+A dedicated monitoring dashboard for the CMTK alignment queue, accessible via the "Alignment Status" button in the main review page header.
+
+#### Page Sections
+
+| # | Section | Purpose |
+|---|---|---|
+| 1 | Overview Cards | Counts for Queued, Processing, Completed, Failed, Approved |
+| 2 | Currently Processing | Active alignment job with elapsed time |
+| 3 | Queued Jobs | Jobs waiting to process, with queue position. Includes `preparing` jobs (purple) |
+| 4 | Completed Jobs | Successfully aligned images with completion timestamp |
+| 5 | Failed Jobs | Failed jobs with error message and "Retry" / "Reset" buttons |
+| 6 | Approved Images | Images approved but not yet queued, each with a "Queue for Alignment" button |
+
+#### Key Features
+- **Auto-refresh:** Polls `GET /api/alignment-status` every 30 seconds
+- **Queue All Approved:** Button in header batch-queues all approved images by calling `POST /api/queue-alignment` for each
+- **Per-image queuing:** Individual "Queue for Alignment" buttons in the Approved Images section
+- **Status colours:** Preparing = purple, Processing = amber, Completed = green, Failed = red
+
+#### Job Status Lifecycle
+```
+preparing → queued → processing → completed
+                                → failed
+```
+- `preparing`: NRRD conversion or channel splitting running in background
+- `queued`: Waiting for a processing slot (sequential queue, one at a time)
+- `processing`: `align_single_cmtk.sh` is currently executing
+- `completed`: Alignment finished successfully, thumbnails available
+- `failed`: Alignment or preparation failed, error message available
 
 ---
 
@@ -491,7 +649,61 @@ This is instantaneous and requires no server round-trip.
 
 ---
 
-## 11. Workflow: Full User Journey
+## 11. Alignment Queue System
+
+The alignment queue is an in-memory system managed by `server.js` that orchestrates the CMTK alignment pipeline. It processes jobs sequentially (one at a time) to avoid overloading the system with concurrent CPU-intensive CMTK registration processes.
+
+### 11.1. In-Memory State
+
+```javascript
+let alignmentQueue = [];          // Array of image_base strings waiting to process
+let currentAlignment = null;      // image_base of currently processing job (or null)
+let alignmentStatus = {};         // image_base → { status, progress, error, queued_at, completed_at }
+let preparingImages = new Set();  // image_base strings currently being prepared (NRRD/channel creation)
+```
+
+> **Note:** All queue state is in-memory and lost on server restart. However, `detectRunningAlignments()` runs on startup to detect and monitor any CMTK processes still running from a previous server session.
+
+### 11.2. Preparation Pipeline (`prepareAndQueue`)
+
+When `POST /api/queue-alignment` is called for an image missing prerequisites:
+
+```
+TIFF file → convert_tiff_to_nrrd.py → nrrd_output/<base>.nrrd
+                                            ↓
+                                    split_channels.py
+                                            ↓
+                              channels/<base>_signal.nrrd
+                              channels/<base>_background.nrrd
+                                            ↓
+                                    queueAlignment()
+```
+
+Each step runs as a background child process. The HTTP response is returned immediately with status `preparing`. If any step fails, the job transitions to `failed` with an error message.
+
+### 11.3. Queue Processing (`processAlignmentQueue`)
+
+1. Check `currentAlignment` is null and queue is non-empty
+2. Check no CMTK `registration` process is already running (via `ps aux`)
+3. Dequeue the next `image_base` and set status to `processing`
+4. Execute `./align_single_cmtk.sh "<image_base>"` (timeout: 600s)
+5. On completion: set status to `completed` or `failed`, clear `currentAlignment`, process next
+
+### 11.4. Startup Recovery (`detectRunningAlignments`)
+
+On server startup, the server scans running processes for:
+- `align_single_cmtk.sh` wrapper scripts (extracts image base from arguments)
+- `CMTK/bin/registration` processes (extracts image base from output path pattern `corrected/<base>_xform/registration.xform`)
+
+Detected processes are tracked as `processing` and monitored every 10 seconds. When a process disappears:
+- If `corrected/<base>_xform/` exists → marked `completed`
+- Otherwise → marked `failed`
+
+Once all monitored processes finish, normal queue processing resumes.
+
+---
+
+## 12. Workflow: Full User Journey
 
 1. **Load**: User picks an image from the dropdown. Server calls `get_image_data.py`, which loads the TIFF, analyses it, generates thumbnails, and returns JSON.
 
@@ -507,11 +719,17 @@ This is instantaneous and requires no server round-trip.
 
 7. **Approve**: After saving, user can "Approve for CMTK Alignment". This sets `approved: true` in `orientations.json`.
 
-8. **Reset** (optional): If a rotation was wrong, "Reset to Original" restores the TIFF from `_backups/`.
+8. **Queue for alignment**: User navigates to the Alignment Status page and clicks "Queue for Alignment" on individual images or "Queue All Approved" to batch-queue. The server prepares prerequisites (NRRD conversion, channel splitting) in the background if needed.
+
+9. **Alignment**: The queue processes images sequentially. Each image runs through `align_single_cmtk.sh` which performs CMTK registration and reformatting against the appropriate template. Results are saved to `corrected/`.
+
+10. **Review alignment**: After completion, the Alignment Status page shows comparison thumbnails (template vs aligned MIPs) for each axis. Users can verify the alignment quality.
+
+11. **Reset** (optional): If a rotation was wrong, "Reset to Original" restores the TIFF from `_backups/`. Alignment status can also be reset to re-queue a failed job.
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### Image shows all black thumbnails
 - The background channel may be wrong. Try swapping to Channel 0.
@@ -547,7 +765,9 @@ python get_image_data.py "DeepanshuSingh/SomeImage" 1  # manual test
 # 1. Delete all cached/derived files
 rm -f nrrd_output/<name>.nrrd
 rm -f channels/<name>_signal.nrrd channels/<name>_background.nrrd
-rm -rf aligned_output/<name>_xform/
+rm -rf corrected/<name>_xform/
+rm -f corrected/<name>_signal_aligned.nrrd corrected/<name>_background_aligned.nrrd
+rm -f corrected/<name>_alignment_thumbnails.json
 
 # 2. Remove from orientations.json
 python3 -c "
@@ -557,13 +777,41 @@ d.pop('<full/path/name>', None)
 with open('orientations.json', 'w') as f: json.dump(d, f, indent=2)
 "
 
-# 3. Reload in the UI (or curl the API)
+# 3. Reset alignment status (if server is running)
+curl -X POST http://localhost:3000/api/reset-alignment \
+  -H "Content-Type: application/json" \
+  -d '{"image_base":"<name>"}'
+
+# 4. Reload in the UI (or curl the API)
 curl "http://localhost:3000/api/image?name=<url-encoded-name>"
 ```
 
+### Queue for Alignment button appears to hang
+The preparation step (NRRD conversion and channel splitting) runs in the background. The button should respond immediately. If it hangs, check:
+- Server logs for errors from `split_channels.py` or `convert_tiff_to_nrrd.py`
+- `ps aux | grep split_channels` to see if the preparation process is running
+- The Alignment Status page should show the image with `preparing` status
+
+### Alignment stuck in "processing"
+CMTK registration can take a long time (minutes to hours) for large images. Check:
+```bash
+ps aux | grep "CMTK/bin/registration"  # Is the process still running?
+```
+If the process has died but the status page still shows "processing", restart the server. `detectRunningAlignments()` will re-check process state on startup.
+
+### Alignment fails immediately
+- Check that `channels/<name>_signal.nrrd` and `channels/<name>_background.nrrd` exist and are valid
+- Ensure the CMTK binaries are present: `ls CMTK/bin/registration CMTK/bin/reformatx`
+- Check server logs for the specific error message
+
+### Queue state lost after server restart
+The alignment queue is in-memory. After restart, any jobs that were in `preparing` or `queued` state are lost. However:
+- Running CMTK processes are auto-detected and monitored
+- Re-queue images using the Alignment Status page
+
 ---
 
-## 13. Dependencies
+## 14. Dependencies
 
 ### Node.js
 - `express` — HTTP server
@@ -574,6 +822,11 @@ curl "http://localhost:3000/api/image?name=<url-encoded-name>"
 - `matplotlib` — thumbnail/histogram rendering
 - `tifffile` — TIFF file I/O with metadata access
 - `nrrd` (pynrrd) — NRRD file I/O
+
+### External Tools
+- **CMTK** (Computational Morphometry Toolkit) — installed in `CMTK/bin/`
+  - `registration` — affine registration of images to templates
+  - `reformatx` — apply transformations to warp images
 
 ### Setup
 ```bash
@@ -586,7 +839,7 @@ npm start
 
 ---
 
-## 14. Voxel Size Extraction
+## 15. Voxel Size Extraction
 
 Voxel sizes are critical for matching sample physical extent to template physical extent.
 

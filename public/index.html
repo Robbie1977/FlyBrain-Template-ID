@@ -1265,9 +1265,11 @@
         $('queue-alignment').addEventListener('click', () => {
             if (!confirm('Queue this image for CMTK alignment processing? This may take several minutes.')) return;
 
-            fetch(`/api/queue-alignment?name=${encodeURIComponent(currentImage)}`, {
+            const imageBase = currentImage.split('/').pop();
+            fetch('/api/queue-alignment', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_base: imageBase })
             })
             .then(r => r.json())
             .then(() => {

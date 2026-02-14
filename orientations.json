@@ -688,10 +688,9 @@
         131,
         2,
         1024,
-        131,
         1024
       ],
-      "num_channels": 1,
+      "num_channels": 2,
       "background_channel": 1,
       "voxel_sizes": [
         0.5,
@@ -703,7 +702,6 @@
       "detected_template": "JRC2018U_template_lps",
       "orientation_correct": false,
       "suggested_changes": [
-        "Axis 0: too few peaks (0 vs template 8) - possible clipping or wrong template",
         "Axis 1: too many peaks (16 vs template 6) - possible axis swap",
         "X-axis highly asymmetric - possible 90\u00b0 rotation needed"
       ],
@@ -714,7 +712,7 @@
       },
       "peak_summary": {
         "0": {
-          "sample_peaks": 0,
+          "sample_peaks": 11,
           "template_peaks": 8
         },
         "1": {
@@ -722,7 +720,7 @@
           "template_peaks": 6
         },
         "2": {
-          "sample_peaks": 3,
+          "sample_peaks": 2,
           "template_peaks": 3
         }
       },

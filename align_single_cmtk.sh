@@ -116,14 +116,14 @@ echo "  Running CMTK registration..."
 echo "  Applying transformation to signal..."
 "$CMTK_BIN/reformatx" \
     --floating "$signal_file" \
-    --output "$output_signal_file" \
+    --outfile "$output_signal_file" \
     "$template" "$xform_dir/registration.xform"
 
 # Apply to background
 echo "  Applying transformation to background..."
 "$CMTK_BIN/reformatx" \
     --floating "$moving_bg" \
-    --output "$output_bg_file" \
+    --outfile "$output_bg_file" \
     "$template" "$xform_dir/registration.xform"
 
 # Clean up temp
