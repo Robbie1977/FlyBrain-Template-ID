@@ -9,6 +9,7 @@ import tifffile
 from pathlib import Path
 import sys
 import json
+import os
 
 
 def apply_rotations(data_3d, rotations):
@@ -58,15 +59,28 @@ def main():
     # Load data and metadata
     with tifffile.TiffFile(str(tiff_file)) as tif:
         data = tif.asarray()
-        metadata = {}
-        
-        # Preserve ImageJ metadata
+        is_imagej = tif.is_imagej
+        ij_metadata = {}
+        ij_luts = None
+
+        # Preserve ImageJ metadata (separate LUTs which are numpy arrays)
         if hasattr(tif, 'imagej_metadata') and tif.imagej_metadata:
-            metadata['imagej'] = tif.imagej_metadata
-            
-        # Preserve OME metadata
-        if hasattr(tif, 'ome_metadata') and tif.ome_metadata:
-            metadata['ome'] = tif.ome_metadata
+            ij_metadata = {k: v for k, v in tif.imagej_metadata.items()
+                          if k not in ('LUTs', 'Ranges')}
+            if 'LUTs' in tif.imagej_metadata:
+                ij_luts = tif.imagej_metadata['LUTs']
+            if 'Ranges' in tif.imagej_metadata:
+                ij_metadata['Ranges'] = tif.imagej_metadata['Ranges']
+
+        # Get resolution tags from first page for XY pixel size
+        resolution = None
+        resolution_unit = None
+        page = tif.pages[0]
+        if 'XResolution' in page.tags and 'YResolution' in page.tags:
+            resolution = (page.tags['XResolution'].value,
+                          page.tags['YResolution'].value)
+            if 'ResolutionUnit' in page.tags:
+                resolution_unit = page.tags['ResolutionUnit'].value
 
     if data.ndim == 4:
         # Multichannel: [Z, Channels, Y, X] — rotate each channel independently
@@ -80,11 +94,45 @@ def main():
         rotated = np.empty((new_z, num_channels, new_y, new_x), dtype=data.dtype)
         for ch in range(num_channels):
             rotated[:, ch, :, :] = rotated_channels[ch]
-        tifffile.imwrite(str(tiff_file), rotated.astype(data.dtype), metadata=metadata)
     else:
         # Single channel 3D
         rotated = apply_rotations(data, rotations)
-        tifffile.imwrite(str(tiff_file), rotated.astype(data.dtype), metadata=metadata)
+
+    # Update ImageJ metadata to reflect new dimensions
+    if is_imagej and ij_metadata:
+        new_shape = rotated.shape
+        if rotated.ndim == 4:
+            ij_metadata['images'] = new_shape[0] * new_shape[1]
+            ij_metadata['slices'] = new_shape[0]
+            ij_metadata['channels'] = new_shape[1]
+        else:
+            ij_metadata['images'] = new_shape[0]
+            ij_metadata['slices'] = new_shape[0]
+
+    # Write the rotated TIFF, preserving ImageJ format and metadata
+    write_kwargs = {}
+    if is_imagej:
+        write_kwargs['imagej'] = True
+        if ij_metadata:
+            write_kwargs['metadata'] = ij_metadata
+    if resolution is not None:
+        write_kwargs['resolution'] = resolution
+    if resolution_unit is not None:
+        write_kwargs['resolutionunit'] = resolution_unit
+
+    # Write to a temporary file first, then rename to prevent corruption
+    import tempfile
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.tif', dir=tiff_file.parent)
+    os.close(tmp_fd)
+    try:
+        tifffile.imwrite(tmp_path, rotated.astype(data.dtype), **write_kwargs)
+        # Atomic-ish replace: remove original, rename temp
+        os.replace(tmp_path, str(tiff_file))
+    except Exception:
+        # Clean up temp file on failure, original remains intact
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
     # Update voxel sizes in orientations.json
     update_voxel_sizes_after_rotation(image_path, rotations)
@@ -149,3 +197,7 @@ def update_voxel_sizes_after_rotation(image_path, rotations):
         json.dump(data, f, indent=2)
     
     print(f"Updated voxel sizes for {image_path}: {voxel_sizes} -> {new_voxel_sizes}")
+
+
+if __name__ == "__main__":
+    main()
