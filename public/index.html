@@ -284,7 +284,7 @@
             <div>Loading image analysis...</div>
         </div>
 
-        <div id="content" style="display:none;">
+        <div id="content" style="display:block;">
             <div style="padding: 20px; color: #7f8c8d; text-align: center;">
                 <div class="spinner"></div>
                 <div>Loading images...</div>
@@ -814,6 +814,7 @@
             $('thumbnails-section').innerHTML = '';
             $('content').style.display = 'none';
             $('image-select').disabled = true;
+            $('image-select').value = imageName; // Show current selection
             $('prev-image').disabled = true;
             $('next-image').disabled = true;
             $('loading').innerHTML = `
