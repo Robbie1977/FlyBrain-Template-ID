@@ -1,31 +1,73 @@
 {
   "queue": [
-    "BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite",
-    "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1",
     "Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1",
     "Brain_SPR8AD.dsxDBD.FB1.1.Nc82.Brain.40x.3",
     "Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite"
   ],
   "jobs": {
     "VNC_Fru11.12AD.dsxDBD.FB1.1.Brain.40x.8.composite": {
-      "status": "processing",
-      "progress": 10,
-      "error": "",
+      "status": "failed",
+      "progress": 0,
+      "error": "Process ended without producing output",
       "queued_at": "2026-02-14T14:59:02.373Z",
       "current_stage": "affine_registration",
-      "stages": {}
+      "stages": {},
+      "completed_at": "2026-02-14T19:21:57.707Z"
     },
     "BrainSPR8AD.Fru11.12DBD.FB1.1.NC82.Brain.40x.1.composite": {
-      "status": "queued",
-      "progress": 0,
+      "status": "completed",
+      "progress": 100,
       "error": "",
-      "queued_at": "2026-02-14T15:02:16.546Z"
+      "queued_at": "2026-02-14T15:02:16.546Z",
+      "current_stage": "completed",
+      "stages": {
+        "set_lps": {
+          "started_at": "2026-02-14T19:21:59.174Z",
+          "completed_at": "2026-02-14T19:25:10.185Z",
+          "duration_seconds": 191
+        },
+        "initial_affine": {
+          "started_at": "2026-02-14T19:25:10.217Z",
+          "completed_at": "2026-02-14T19:25:30.741Z",
+          "duration_seconds": 20.5
+        },
+        "affine_registration": {
+          "started_at": "2026-02-14T19:25:30.772Z",
+          "completed_at": "2026-02-14T19:52:49.850Z",
+          "duration_seconds": 1639.1
+        },
+        "warp": {
+          "started_at": "2026-02-14T19:52:49.880Z",
+          "completed_at": "2026-02-14T22:18:55.696Z",
+          "duration_seconds": 8765.8
+        },
+        "reformat_signal": {
+          "started_at": "2026-02-14T22:18:55.724Z",
+          "completed_at": "2026-02-14T22:23:30.551Z",
+          "duration_seconds": 274.8
+        },
+        "reformat_background": {
+          "started_at": "2026-02-14T22:23:30.584Z",
+          "completed_at": "2026-02-14T22:27:44.355Z",
+          "duration_seconds": 253.8
+        },
+        "thumbnails": {
+          "started_at": "2026-02-14T22:27:44.390Z",
+          "completed_at": "2026-02-14T22:27:47.750Z",
+          "duration_seconds": 3.4
+        }
+      },
+      "started_at": "2026-02-14T19:21:59.128Z",
+      "completed_at": "2026-02-14T22:27:47.783Z"
     },
     "Brain_Fru11.12AD_FD6DBD_FB1.1_NC82_S1": {
-      "status": "queued",
+      "status": "processing",
       "progress": 0,
       "error": "",
-      "queued_at": "2026-02-14T15:02:20.814Z"
+      "queued_at": "2026-02-14T15:02:20.814Z",
+      "current_stage": "initializing",
+      "stages": {},
+      "started_at": "2026-02-14T22:27:48.915Z"
     },
     "Brain_SPR8AD.FD6DBD_FB1.1_nc82647_S1": {
       "status": "queued",
