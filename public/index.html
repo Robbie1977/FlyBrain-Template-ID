@@ -283,8 +283,8 @@
             <div>Loading image analysis...</div>
         </div>
 
-        <div id="content" style="display:block;">
-            <div style="padding: 20px; color: #7f8c8d;">Loading images... <span id="debug-info"></span></div>
+        <div id="content" style="display:none;">
+            <div style="padding: 20px; color: #7f8c8d;">Loading images...</div>
         </div>
             <!-- Section 1: Sample & Template Info -->
             <div class="card" id="info-card">
@@ -491,7 +491,6 @@
     </div>
 
     <script>
-        alert('JavaScript is loading...');
         let currentImage = null;
         let imageData = null;
         let savedData = {};
@@ -648,39 +647,34 @@
         }
 
         // --- Load image list ---
-        console.log('About to fetch /api/images');
         fetch('/api/images')
             .then(r => {
-                console.log('Fetch response received');
                 if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
                 return r.json();
             })
             .then(data => {
-                console.log('Images data:', data);
                 images = data;
-                $('debug-info').textContent = `Loaded ${images.length} images`;
                 const select = $('image-select');
-                images.forEach(img => {
-                    const opt = document.createElement('option');
-                    opt.value = img;
-                    opt.textContent = img;
-                    select.appendChild(opt);
+                // Populate the select element with image options
+                select.innerHTML = ''; // Clear existing options
+                images.forEach(imageName => {
+                    const option = document.createElement('option');
+                    option.value = imageName;
+                    option.textContent = imageName;
+                    select.appendChild(option);
                 });
-                console.log('Select element now has', select.children.length, 'options');
                 return fetch('/api/saved').then(r => {
                     if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
                     return r.json();
                 });
             })
             .then(saved => {
-                console.log('Saved data loaded');
                 savedData = saved;
                 updateProgress();
                 if (images.length > 0) loadImage(images[0]);
             })
             .catch(err => {
                 console.error('Failed to load initial data:', err);
-                $('debug-info').textContent = `Error: ${err.message}`;
                 $('loading').innerHTML = '<div style="color:#e74c3c;">Failed to load data. Check console.</div>';
                 $('loading').style.display = 'block';
             });
@@ -851,7 +845,6 @@
 
         // --- Render ---
         function renderAll(data) {
-            console.log('renderAll called with data:', data);
             try {
                 renderInfo(data);
                 renderOrientation(data);
@@ -1108,8 +1101,6 @@
                 $('approve-status').textContent = 'Save assessment before approving.';
                 $('approve-review').disabled = true;
                 $('queue-alignment').style.display = 'none';
-            }
-        }
             }
         }
 
