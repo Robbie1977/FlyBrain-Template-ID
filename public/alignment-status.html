@@ -119,6 +119,10 @@
                 <h3>Failed</h3>
                 <div class="count" id="failed-count">0</div>
             </div>
+            <div class="status-card">
+                <h3>Approved</h3>
+                <div class="count" id="approved-count">0</div>
+            </div>
         </div>
 
         <div class="section">
@@ -160,26 +164,41 @@
                 </div>
             </div>
         </div>
+
+        <div class="section">
+            <h2>Approved Images (Ready to Queue)</h2>
+            <div id="approved-section">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading approved images...</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         let statusData = null;
 
         function loadStatus() {
-            fetch('/api/alignment-status')
-                .then(r => r.json())
-                .then(data => {
-                    statusData = data;
-                    updateOverview();
-                    renderProcessing();
-                    renderQueued();
-                    renderCompleted();
-                    renderFailed();
-                })
-                .catch(err => {
-                    console.error('Failed to load status:', err);
-                    showError('Failed to load alignment status');
-                });
+            Promise.all([
+                fetch('/api/alignment-status').then(r => r.json()),
+                fetch('/api/images').then(r => r.json()),
+                fetch('/api/saved').then(r => r.json())
+            ])
+            .then(([status, images, saved]) => {
+                statusData = status;
+                updateOverview();
+                renderProcessing();
+                renderQueued();
+                renderCompleted();
+                renderFailed();
+                renderApproved(images, saved);
+                updateApprovedCount(images, saved);
+            })
+            .catch(err => {
+                console.error('Failed to load status:', err);
+                showError('Failed to load alignment status');
+            });
         }
 
         function updateOverview() {
@@ -198,6 +217,17 @@
             document.getElementById('processing-count').textContent = counts.processing || 0;
             document.getElementById('completed-count').textContent = counts.completed || 0;
             document.getElementById('failed-count').textContent = counts.failed || 0;
+        }
+
+        function updateApprovedCount(images, savedData) {
+            // Get approved images that haven't been queued/processed yet
+            const queuedOrProcessed = new Set(statusData.map(job => job.image_base));
+            const approvedCount = images.filter(img => {
+                const imgBase = img.split('/').pop();
+                return savedData[img] && savedData[img].approved && !queuedOrProcessed.has(imgBase);
+            }).length;
+
+            document.getElementById('approved-count').textContent = approvedCount;
         }
 
         function renderProcessing() {
@@ -303,6 +333,41 @@
             container.innerHTML = `<div class="job-list">${html}</div>`;
         }
 
+        function renderApproved(images, savedData) {
+            // Get approved images that haven't been queued/processed yet
+            const queuedOrProcessed = new Set(statusData.map(job => job.image_base));
+            const approvedImages = images.filter(img => {
+                const imgBase = img.split('/').pop();
+                return savedData[img] && savedData[img].approved && !queuedOrProcessed.has(imgBase);
+            });
+
+            const container = document.getElementById('approved-section');
+
+            if (approvedImages.length === 0) {
+                container.innerHTML = '<div class="empty-state">No approved images ready to queue</div>';
+                return;
+            }
+
+            const html = approvedImages.map(imageName => {
+                const imgBase = imageName.split('/').pop();
+                const approvedAt = savedData[imageName].approved_at;
+                return `
+                    <div class="job-item">
+                        <div class="job-info">
+                            <div class="job-name">${imgBase}</div>
+                            <div class="job-status">Approved ${approvedAt ? formatTime(approvedAt) : 'recently'}</div>
+                        </div>
+                        <div class="job-meta">
+                            <div>✅ Approved</div>
+                            <button class="queue-btn" onclick="queueSingle('${imgBase}')">Queue for Alignment</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `<div class="job-list">${html}</div>`;
+        }
+
         async function retryJob(imageBase) {
             try {
                 const response = await fetch('/api/queue-alignment', {
@@ -329,16 +394,50 @@
             }
         }
 
-        async function queueAllApproved() {
+        async function queueSingle(imageBase) {
             try {
-                // First get all approved images
-                const response = await fetch('/api/images');
+                const response = await fetch('/api/queue-alignment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image_base: imageBase })
+                });
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                const images = await response.json();
 
-                const approvedImages = images.filter(img => img.approved);
+                const result = await response.json();
+                if (result.success) {
+                    alert(`Successfully queued ${imageBase} for alignment`);
+                    loadStatus(); // Refresh the status
+                } else {
+                    throw new Error(result.error || 'Failed to queue alignment');
+                }
+            } catch (error) {
+                showError(`Failed to queue ${imageBase}: ${error.message}`);
+            }
+        }
+
+        async function queueAllApproved() {
+            try {
+                // Get all images
+                const imagesResponse = await fetch('/api/images');
+                if (!imagesResponse.ok) {
+                    throw new Error(`HTTP ${imagesResponse.status}: ${imagesResponse.statusText}`);
+                }
+                const images = await imagesResponse.json();
+
+                // Get saved data to find approved images
+                const savedResponse = await fetch('/api/saved');
+                if (!savedResponse.ok) {
+                    throw new Error(`HTTP ${savedResponse.status}: ${savedResponse.statusText}`);
+                }
+                const savedData = await savedResponse.json();
+
+                // Filter images that are approved
+                const approvedImages = images.filter(img => savedData[img] && savedData[img].approved);
                 if (approvedImages.length === 0) {
                     alert('No approved images found');
                     return;
@@ -348,14 +447,16 @@
                 let errorCount = 0;
 
                 // Queue each approved image
-                for (const image of approvedImages) {
+                for (const imageName of approvedImages) {
                     try {
+                        // Extract base name (remove directory prefix)
+                        const imageBase = imageName.split('/').pop();
                         const queueResponse = await fetch('/api/queue-alignment', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                             },
-                            body: JSON.stringify({ image_base: image.base_name })
+                            body: JSON.stringify({ image_base: imageBase })
                         });
 
                         if (queueResponse.ok) {

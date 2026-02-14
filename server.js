@@ -128,6 +128,14 @@ app.post('/api/rotate', (req, res) => {
             console.error(`Error: ${error}`);
             return res.status(500).json({ error: 'Failed to apply rotation' });
         }
+        
+        // Reset saved rotations to 0 since the image file has been rotated
+        const saved = readOrientations();
+        if (saved[imageName] && saved[imageName].manual_corrections) {
+            saved[imageName].manual_corrections.rotations = { x: 0, y: 0, z: 0 };
+            writeOrientations(saved);
+        }
+        
         res.json({ success: true });
     });
 });
