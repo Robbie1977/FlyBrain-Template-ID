@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test</title>
+</head>
+<body>
+    <h1>Test Page</h1>
+    <div id="test">JavaScript not loaded</div>
+    <div id="fetch-test">Fetch not tested</div>
+    <script>
+        document.getElementById('test').textContent = 'JavaScript is working!';
+        console.log('Test script executed');
+        
+        fetch('/api/images')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('fetch-test').textContent = 'Fetch works: ' + data.length + ' images';
+            })
+            .catch(err => {
+                document.getElementById('fetch-test').textContent = 'Fetch failed: ' + err.message;
+            });
+    </script>
+</body>
+</html>

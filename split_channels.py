@@ -1,16 +1,36 @@
 #!/usr/bin/env python3
 """
 Split multi-channel NRRDs into separate background and signal files.
+Usage: python3 split_channels.py [image_base]
+If image_base is provided, only process that specific image.
+Otherwise, process all NRRD files in nrrd_output directory.
 """
 
 import nrrd
 from pathlib import Path
+import sys
 
 nrrd_dir = Path('nrrd_output')
 channels_dir = Path('channels')
 channels_dir.mkdir(exist_ok=True)
 
-for nrrd_file in nrrd_dir.glob('*.nrrd'):
+# Check if specific image base is provided
+specific_image = sys.argv[1] if len(sys.argv) > 1 else None
+
+files_to_process = []
+if specific_image:
+    # Process only the specific image
+    nrrd_file = nrrd_dir / f"{specific_image}.nrrd"
+    if nrrd_file.exists():
+        files_to_process = [nrrd_file]
+    else:
+        print(f"NRRD file not found: {nrrd_file}")
+        sys.exit(1)
+else:
+    # Process all NRRD files
+    files_to_process = list(nrrd_dir.glob('*.nrrd'))
+
+for nrrd_file in files_to_process:
     data, header = nrrd.read(str(nrrd_file))
     if data.ndim == 4 and data.shape[3] == 2:
         base = nrrd_file.stem

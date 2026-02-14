@@ -186,8 +186,95 @@ app.post('/api/approve', (req, res) => {
 
     writeOrientations(saved);
 
-    // Add to alignment queue
-    const imageBase = imageName.split('/').pop(); // Get the base name after the submitter
+    res.json({ success: true, message: 'Image approved for review' });
+});
+
+app.post('/api/queue-alignment', (req, res) => {
+    const imageBase = req.body.image_base;
+    if (!imageBase) {
+        return res.status(400).json({ error: 'Missing image_base' });
+    }
+
+    const saved = readOrientations();
+    // Find the image by base name
+    const imageKey = Object.keys(saved).find(key => key.split('/').pop() === imageBase);
+    if (!imageKey || !saved[imageKey].approved) {
+        return res.status(400).json({ error: 'Image must be approved before queuing for alignment' });
+    }
+
+    // Check if NRRD file exists, create it if not
+    const nrrdFile = path.join(__dirname, 'nrrd_output', `${imageBase}.nrrd`);
+    const tiffFile = path.join(__dirname, 'Images', imageKey + '.tif');
+
+    if (!fs.existsSync(nrrdFile)) {
+        if (!fs.existsSync(tiffFile)) {
+            return res.status(400).json({ error: 'Source TIFF file not found' });
+        }
+
+        console.log(`NRRD file missing for ${imageBase}, converting from TIFF...`);
+
+        // Run convert_tiff_to_nrrd.py to create the NRRD file
+        const { spawn } = require('child_process');
+        const convertProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + imageBase], { cwd: __dirname });
+
+        convertProcess.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`Failed to convert TIFF to NRRD for ${imageBase}`);
+                return res.status(500).json({ error: 'Failed to convert TIFF to NRRD' });
+            }
+
+            // Now check/create channel files
+            checkAndCreateChannels(imageBase, res);
+        });
+
+        convertProcess.on('error', (err) => {
+            console.error(`Error running convert_tiff_to_nrrd.py: ${err}`);
+            res.status(500).json({ error: 'Failed to convert TIFF to NRRD' });
+        });
+
+        return; // Don't queue yet, wait for conversion
+    }
+
+    // NRRD exists, check/create channel files
+    checkAndCreateChannels(imageBase, res);
+});
+
+function checkAndCreateChannels(imageBase, res) {
+    const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
+    const backgroundFile = path.join(__dirname, 'channels', `${imageBase}_background.nrrd`);
+
+    if (!fs.existsSync(signalFile) || !fs.existsSync(backgroundFile)) {
+        console.log(`Channel files missing for ${imageBase}, creating them...`);
+
+        // Run split_channels.py to create the channel files
+        const { spawn } = require('child_process');
+        const splitProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 split_channels.py ' + imageBase], { cwd: __dirname });
+
+        splitProcess.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`Failed to create channel files for ${imageBase}`);
+                return res.status(500).json({ error: 'Failed to create channel files' });
+            }
+
+            // Now queue the alignment
+            queueAlignment(imageBase);
+            res.json({ success: true, message: 'Channel files created and image queued for CMTK alignment' });
+        });
+
+        splitProcess.on('error', (err) => {
+            console.error(`Error running split_channels.py: ${err}`);
+            res.status(500).json({ error: 'Failed to create channel files' });
+        });
+
+        return; // Don't queue yet, wait for channel creation
+    }
+
+    // Channel files exist, queue immediately
+    queueAlignment(imageBase);
+    res.json({ success: true, message: 'Image queued for CMTK alignment' });
+}
+
+function queueAlignment(imageBase) {
     if (!alignmentQueue.includes(imageBase) && alignmentStatus[imageBase]?.status !== 'processing' && alignmentStatus[imageBase]?.status !== 'completed') {
         alignmentQueue.push(imageBase);
         alignmentStatus[imageBase] = { status: 'queued', progress: 0, error: '', queued_at: new Date().toISOString() };
@@ -195,9 +282,7 @@ app.post('/api/approve', (req, res) => {
         // Start processing if not already running
         processAlignmentQueue();
     }
-
-    res.json({ success: true, message: 'Image approved for CMTK alignment' });
-});
+}
 
 app.get('/api/alignment-status', (req, res) => {
     const queuePosition = {};
@@ -205,17 +290,14 @@ app.get('/api/alignment-status', (req, res) => {
         queuePosition[item] = index + 1;
     });
 
-    const status = Object.keys(alignmentStatus).map(imageBase => ({
+    const jobs = Object.keys(alignmentStatus).map(imageBase => ({
         image_base: imageBase,
         ...alignmentStatus[imageBase],
-        queue_position: queuePosition[imageBase] || null
+        queue_position: queuePosition[imageBase] || null,
+        is_current: currentAlignment === imageBase
     }));
 
-    res.json({
-        current: currentAlignment,
-        queue: alignmentQueue,
-        status: status
-    });
+    res.json(jobs);
 });
 
 app.get('/api/alignment-thumbnails', (req, res) => {

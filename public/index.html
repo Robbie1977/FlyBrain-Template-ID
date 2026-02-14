@@ -272,6 +272,7 @@
             <button id="prev-image">&larr; Prev</button>
             <select id="image-select"></select>
             <button id="next-image">Next &rarr;</button>
+            <button onclick="window.open('/alignment-status.html', '_blank')">Alignment Status</button>
             <span class="progress" id="progress-text"></span>
         </div>
     </div>
@@ -282,7 +283,9 @@
             <div>Loading image analysis...</div>
         </div>
 
-        <div id="content" style="display:none;">
+        <div id="content" style="display:block;">
+            <div style="padding: 20px; color: #7f8c8d;">Loading images... <span id="debug-info"></span></div>
+        </div>
             <!-- Section 1: Sample & Template Info -->
             <div class="card" id="info-card">
                 <h2>Image Information</h2>
@@ -433,7 +436,8 @@
                 <h2>Review &amp; Approve</h2>
                 <div class="btn-row">
                     <button class="btn btn-success" id="save-changes">Save Assessment</button>
-                    <button class="btn btn-success" id="approve-cmtk" disabled>Approve for CMTK Alignment</button>
+                    <button class="btn btn-primary" id="approve-review" disabled>Approve for Review</button>
+                    <button class="btn btn-success" id="queue-alignment" disabled style="display: none;">Queue for CMTK Alignment</button>
                 </div>
                 <p id="approve-status" style="font-size:12px; color:#7f8c8d; margin-top:8px;"></p>
             </div>
@@ -487,6 +491,7 @@
     </div>
 
     <script>
+        alert('JavaScript is loading...');
         let currentImage = null;
         let imageData = null;
         let savedData = {};
@@ -643,10 +648,17 @@
         }
 
         // --- Load image list ---
+        console.log('About to fetch /api/images');
         fetch('/api/images')
-            .then(r => r.json())
+            .then(r => {
+                console.log('Fetch response received');
+                if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                return r.json();
+            })
             .then(data => {
+                console.log('Images data:', data);
                 images = data;
+                $('debug-info').textContent = `Loaded ${images.length} images`;
                 const select = $('image-select');
                 images.forEach(img => {
                     const opt = document.createElement('option');
@@ -654,12 +666,23 @@
                     opt.textContent = img;
                     select.appendChild(opt);
                 });
-                return fetch('/api/saved').then(r => r.json());
+                console.log('Select element now has', select.children.length, 'options');
+                return fetch('/api/saved').then(r => {
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    return r.json();
+                });
             })
             .then(saved => {
+                console.log('Saved data loaded');
                 savedData = saved;
                 updateProgress();
                 if (images.length > 0) loadImage(images[0]);
+            })
+            .catch(err => {
+                console.error('Failed to load initial data:', err);
+                $('debug-info').textContent = `Error: ${err.message}`;
+                $('loading').innerHTML = '<div style="color:#e74c3c;">Failed to load data. Check console.</div>';
+                $('loading').style.display = 'block';
             });
 
         // --- Navigation ---
@@ -694,8 +717,8 @@
             const imageBase = currentImage.split('/').pop();
             fetch('/api/alignment-status')
                 .then(r => r.json())
-                .then(data => {
-                    const status = data.status.find(s => s.image_base === imageBase);
+                .then(jobs => {
+                    const status = jobs.find(job => job.image_base === imageBase);
                     const card = $('alignment-card');
                     const content = $('alignment-status-content');
                     const thumbnails = $('alignment-thumbnails');
@@ -792,7 +815,10 @@
             $('loading').style.display = 'block';
 
             fetch(`/api/image?name=${encodeURIComponent(imageName)}&bg_channel=${bgChannel}`)
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    return r.json();
+                })
                 .then(data => {
                     imageData = data;
                     $('loading').style.display = 'none';
@@ -817,20 +843,26 @@
             $('rot-y').value = mc.rotations.y || 0;
             $('rot-z').value = mc.rotations.z || 0;
             if (saved.approved) {
-                $('approve-status').textContent = 'Approved for CMTK at ' + saved.approved_at;
-                $('approve-cmtk').disabled = true;
+                $('approve-status').textContent = 'Approved for review at ' + saved.approved_at;
+                $('approve-review').disabled = true;
+                $('queue-alignment').style.display = 'inline-block';
             }
         }
 
         // --- Render ---
         function renderAll(data) {
-            renderInfo(data);
-            renderOrientation(data);
-            renderThumbnails(data);
-            renderSignal(data);
-            renderHistogram(data);
-            renderCorrections(data);
-            renderApproval();
+            console.log('renderAll called with data:', data);
+            try {
+                renderInfo(data);
+                renderOrientation(data);
+                renderThumbnails(data);
+                renderSignal(data);
+                renderHistogram(data);
+                renderCorrections(data);
+                renderApproval();
+            } catch (err) {
+                console.error('Error in renderAll:', err);
+            }
         }
 
         function renderInfo(data) {
@@ -1058,15 +1090,26 @@
         function renderApproval() {
             const saved = savedData[currentImage];
             const hasMC = saved && saved.manual_corrections;
-            $('approve-cmtk').disabled = !hasMC;
-            if (saved && saved.approved) {
-                $('approve-status').textContent = 'Approved for CMTK alignment at ' + saved.approved_at;
-                $('approve-cmtk').disabled = true;
+            const isApproved = saved && saved.approved;
+            
+            $('approve-review').disabled = !hasMC;
+            $('queue-alignment').disabled = !isApproved;
+            
+            if (isApproved) {
+                $('approve-status').textContent = 'Approved for review at ' + saved.approved_at + '. Ready to queue for alignment.';
+                $('approve-review').disabled = true;
+                $('queue-alignment').style.display = 'inline-block';
+                $('approve-cmtk').style.display = 'none'; // Hide old button
             } else if (hasMC) {
-                $('approve-status').textContent = 'Assessment saved. Ready to approve.';
-                $('approve-cmtk').disabled = false;
+                $('approve-status').textContent = 'Assessment saved. Ready to approve for review.';
+                $('approve-review').disabled = false;
+                $('queue-alignment').style.display = 'none';
             } else {
                 $('approve-status').textContent = 'Save assessment before approving.';
+                $('approve-review').disabled = true;
+                $('queue-alignment').style.display = 'none';
+            }
+        }
             }
         }
 
@@ -1188,8 +1231,8 @@
             });
         });
 
-        $('approve-cmtk').addEventListener('click', () => {
-            if (!confirm('Approve this image for CMTK alignment processing?')) return;
+        $('approve-review').addEventListener('click', () => {
+            if (!confirm('Approve this image for review? This marks it as ready for alignment processing.')) return;
 
             fetch(`/api/approve?name=${encodeURIComponent(currentImage)}`, {
                 method: 'POST',
@@ -1203,7 +1246,20 @@
                 savedData = saved;
                 updateProgress();
                 renderApproval();
+            });
+        });
+
+        $('queue-alignment').addEventListener('click', () => {
+            if (!confirm('Queue this image for CMTK alignment processing? This may take several minutes.')) return;
+
+            fetch(`/api/queue-alignment?name=${encodeURIComponent(currentImage)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(r => r.json())
+            .then(() => {
                 updateAlignmentStatus();
+                alert('Image queued for CMTK alignment. Check the Alignment Status section below.');
             });
         });
     </script>

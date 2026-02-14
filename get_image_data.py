@@ -134,6 +134,9 @@ def analyze_projections(data, vox_sizes):
 
         filtered_data = np.where(data > signal_threshold, data, 0)
         filtered_proj = np.sum(filtered_data, axis=tuple(i for i in range(3) if i != axis))
+        
+        # Ensure filtered_proj is 1D for find_peaks
+        filtered_proj = np.asarray(filtered_proj).flatten()
 
         physical_coords = np.arange(len(filtered_proj)) * vox_sizes[axis]
 
@@ -326,6 +329,12 @@ def main():
     image_path = sys.argv[1]
     bg_channel = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 
+    # Load saved data to check for manual corrections
+    saved_data = {}
+    if ORIENTATIONS_FILE.exists():
+        saved_data = json.loads(ORIENTATIONS_FILE.read_text())
+    manual_corrections = saved_data.get(image_path, {}).get('manual_corrections', {})
+
     tiff_file = Path("Images") / f"{image_path}.tif"
     if not tiff_file.exists():
         tiff_file = Path("Images") / f"{image_path}.tiff"
@@ -335,7 +344,7 @@ def main():
 
     # Load full TIFF data and try to extract voxel sizes from metadata
     with tifffile.TiffFile(str(tiff_file)) as tif:
-        raw_data = tif.asarray()
+        raw_data = tif.asarray(series=0)
         sample_vox = _extract_voxel_sizes(tif)
     original_shape = list(raw_data.shape)
     num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
@@ -360,11 +369,27 @@ def main():
         bg_data = raw_data
         sig_data = None
 
+    # Ensure bg_data is 3D (Z, Y, X)
+    if bg_data.ndim != 3:
+        print(f"Warning: bg_data has {bg_data.ndim} dimensions with shape {bg_data.shape}, reshaping to 3D", file=sys.stderr)
+        if bg_data.ndim == 4 and bg_data.shape[0] == 1:
+            bg_data = bg_data[0]  # Remove singleton dimension
+        elif bg_data.ndim == 5:
+            # Handle 5D data - likely (Z, C, Y, Z, X) - take max projection
+            bg_data = np.max(bg_data, axis=(1, 3))  # Max over duplicate dimensions
+        else:
+            # Take maximum projection across first dimensions if they're small (likely channels/time)
+            while bg_data.ndim > 3:
+                bg_data = np.max(bg_data, axis=0)
+    print(f"Final bg_data shape: {bg_data.shape}", file=sys.stderr)
+
     # Determine template
-    if "VNC" in image_path:
-        template_key = "JRCVNC2018U_template"
-    else:
-        template_key = "JRC2018U_template_lps"
+    template_key = manual_corrections.get('template')
+    if not template_key:
+        if "VNC" in image_path:
+            template_key = "JRCVNC2018U_template"
+        else:
+            template_key = "JRC2018U_template_lps"
 
     # Load template
     template_info = load_template(template_key)
@@ -386,6 +411,10 @@ def main():
     orientation_correct, changes, suggested_rotations = check_orientation(
         sample_peaks, sample_proj_1d, template_key, template_info
     )
+
+    # Use manual correction if available
+    if 'template_correct' in manual_corrections:
+        orientation_correct = manual_corrections['template_correct']
 
     # Generate background (sample) thumbnails
     original_thumbnails = {}
