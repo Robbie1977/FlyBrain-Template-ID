@@ -84,6 +84,40 @@ function writeAlignmentState() {
     }
 }
 
+// Remove old alignment artifacts from corrected/ so they don't interfere with re-alignment
+// or get re-discovered by recoverCompletedAlignments() on restart
+function cleanOldAlignmentArtifacts(imageBase) {
+    const correctedDir = path.join(__dirname, 'corrected');
+    const filesToRemove = [
+        `${imageBase}_signal_aligned.nrrd`,
+        `${imageBase}_background_aligned.nrrd`,
+        `${imageBase}_alignment_progress.json`,
+        `${imageBase}_alignment_thumbnails.json`
+    ];
+    const dirToRemove = path.join(correctedDir, `${imageBase}_xform`);
+
+    for (const file of filesToRemove) {
+        const fullPath = path.join(correctedDir, file);
+        try {
+            if (fs.existsSync(fullPath)) {
+                fs.unlinkSync(fullPath);
+                console.log(`  Removed old artifact: corrected/${file}`);
+            }
+        } catch (e) {
+            console.error(`  Failed to remove corrected/${file}:`, e.message);
+        }
+    }
+
+    try {
+        if (fs.existsSync(dirToRemove)) {
+            fs.rmSync(dirToRemove, { recursive: true, force: true });
+            console.log(`  Removed old artifact: corrected/${imageBase}_xform/`);
+        }
+    } catch (e) {
+        console.error(`  Failed to remove corrected/${imageBase}_xform/:`, e.message);
+    }
+}
+
 function loadPersistedState() {
     const state = readAlignmentState();
     alignmentQueue = state.queue || [];
@@ -631,6 +665,18 @@ app.post('/api/save', (req, res) => {
         delete entry.alignment_rejection_reason;
     }
 
+    // Clear stale alignment job so pipeline status doesn't show old "aligned"
+    const imageBase = imageName.split('/').pop();
+    if (alignmentStatus[imageBase] && alignmentStatus[imageBase].status === 'completed') {
+        console.log(`[/api/save] Clearing stale completed alignment for: ${imageBase}`);
+        delete alignmentStatus[imageBase];
+        const qIdx = alignmentQueue.indexOf(imageBase);
+        if (qIdx > -1) alignmentQueue.splice(qIdx, 1);
+        writeAlignmentState();
+        // Remove old alignment files so they don't interfere with re-alignment
+        cleanOldAlignmentArtifacts(imageBase);
+    }
+
     saved[imageName] = entry;
     writeOrientations(saved);
     console.log(`[/api/save] Success for ${imageName}`);
@@ -1131,6 +1177,9 @@ app.post('/api/reject-alignment', (req, res) => {
         alignmentQueue.splice(index, 1);
     }
     writeAlignmentState();
+
+    // Remove old alignment files so they don't interfere with re-alignment
+    cleanOldAlignmentArtifacts(imageBase);
 
     console.log(`[/api/reject-alignment] Success for ${imageBase}`);
     res.json({ success: true });

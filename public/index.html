@@ -1266,9 +1266,13 @@
                 statusMsg = 'Alignment rejected — re-orient this image. Reason: ' + (saved.alignment_rejection_reason || 'No reason given');
                 $('approve-review').disabled = false;
                 $('queue-alignment').style.display = 'none';
-            } else if (pStatus === 'aligned') {
+            } else if (pStatus === 'aligned' && isApproved) {
                 statusMsg = 'Alignment completed — <a href="/alignment-review.html#' + encodeURIComponent(currentImage.split('/').pop()) + '" target="_blank">review on Alignment Review page</a>';
                 $('approve-review').disabled = true;
+                $('queue-alignment').style.display = 'none';
+            } else if (pStatus === 'aligned' && !isApproved && hasMC) {
+                statusMsg = 'Previous alignment exists but orientation was updated. Approve to re-queue for alignment.';
+                $('approve-review').disabled = false;
                 $('queue-alignment').style.display = 'none';
             } else if (isApproved) {
                 statusMsg = 'Approved for review at ' + saved.approved_at + '. Ready to queue for alignment.';
