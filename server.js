@@ -423,6 +423,7 @@ function startNextAlignment() {
 // API endpoints
 app.get('/api/images', (req, res) => {
     const imagesDir = path.join(__dirname, 'Images');
+    console.log(`[/api/images] Scanning directory: ${imagesDir}`);
     const getTiffs = (dir) => {
         let tiffs = [];
         const items = fs.readdirSync(dir);
@@ -439,8 +440,11 @@ app.get('/api/images', (req, res) => {
     };
     try {
         const images = getTiffs(imagesDir);
+        console.log(`[/api/images] Found ${images.length} images: ${JSON.stringify(images)}`);
         res.json(images);
     } catch (err) {
+        console.error(`[/api/images] Error scanning directory: ${err.message}`);
+        console.error(`[/api/images] Stack: ${err.stack}`);
         res.status(500).json({ error: 'Unable to read Images directory' });
     }
 });
@@ -455,18 +459,26 @@ app.get('/api/image', (req, res) => {
     if (!imageName) {
         return res.status(400).json({ error: 'Missing image name' });
     }
-    exec(`source venv/bin/activate && python get_image_data.py ${shellEscape(imageName)} ${bgChannel}`, { maxBuffer: 50 * 1024 * 1024, timeout: 120000 }, (error, stdout, stderr) => {
+    const cmd = `source venv/bin/activate && python get_image_data.py ${shellEscape(imageName)} ${bgChannel}`;
+    console.log(`[/api/image] Request for: ${imageName} (bg_channel=${bgChannel})`);
+    console.log(`[/api/image] Executing: ${cmd}`);
+    exec(cmd, { shell: '/bin/bash', maxBuffer: 50 * 1024 * 1024, timeout: 120000 }, (error, stdout, stderr) => {
+        if (stderr) {
+            console.log(`[/api/image] stderr: ${stderr}`);
+        }
         if (error) {
-            console.error(`Error: ${error}`);
-            console.error(`stderr: ${stderr}`);
-            return res.status(500).json({ error: 'Failed to get image data' });
+            console.error(`[/api/image] Error: ${error.message}`);
+            console.error(`[/api/image] Exit code: ${error.code}`);
+            console.error(`[/api/image] stderr: ${stderr}`);
+            return res.status(500).json({ error: 'Failed to get image data', detail: stderr || error.message });
         }
         try {
             const data = JSON.parse(stdout);
+            console.log(`[/api/image] Success for ${imageName} — shape: ${JSON.stringify(data.image_info?.shape)}, template: ${data.automated_analysis?.detected_template}`);
             res.json(data);
         } catch (e) {
-            console.error(`JSON parse error: ${e}`);
-            console.error(`stdout length: ${stdout.length}`);
+            console.error(`[/api/image] JSON parse error: ${e}`);
+            console.error(`[/api/image] stdout (first 500 chars): ${stdout.substring(0, 500)}`);
             res.status(500).json({ error: 'Invalid JSON response' });
         }
     });
@@ -479,19 +491,26 @@ app.post('/api/rotate', (req, res) => {
         return res.status(400).json({ error: 'Missing image name or rotations' });
     }
     const rotStr = JSON.stringify(rotations);
-    exec(`source venv/bin/activate && python apply_rotation.py ${shellEscape(imageName)} ${shellEscape(rotStr)}`, { timeout: 120000 }, (error, stdout, stderr) => {
+    const cmd = `source venv/bin/activate && python apply_rotation.py ${shellEscape(imageName)} ${shellEscape(rotStr)}`;
+    console.log(`[/api/rotate] Request for: ${imageName} rotations=${rotStr}`);
+    console.log(`[/api/rotate] Executing: ${cmd}`);
+    exec(cmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
+        if (stdout) console.log(`[/api/rotate] stdout: ${stdout}`);
+        if (stderr) console.log(`[/api/rotate] stderr: ${stderr}`);
         if (error) {
-            console.error(`Error: ${error}`);
-            return res.status(500).json({ error: 'Failed to apply rotation' });
+            console.error(`[/api/rotate] Error: ${error.message}`);
+            console.error(`[/api/rotate] Exit code: ${error.code}`);
+            return res.status(500).json({ error: 'Failed to apply rotation', detail: stderr || error.message });
         }
-        
+
         // Reset saved rotations to 0 since the image file has been rotated
         const saved = readOrientations();
         if (saved[imageName] && saved[imageName].manual_corrections) {
             saved[imageName].manual_corrections.rotations = { x: 0, y: 0, z: 0 };
             writeOrientations(saved);
         }
-        
+
+        console.log(`[/api/rotate] Success for ${imageName}`);
         res.json({ success: true });
     });
 });
@@ -501,11 +520,18 @@ app.post('/api/reset', (req, res) => {
     if (!imageName) {
         return res.status(400).json({ error: 'Missing image name' });
     }
-    exec(`source venv/bin/activate && python reset_rotation.py ${shellEscape(imageName)}`, { timeout: 60000 }, (error, stdout, stderr) => {
+    const cmd = `source venv/bin/activate && python reset_rotation.py ${shellEscape(imageName)}`;
+    console.log(`[/api/reset] Request for: ${imageName}`);
+    console.log(`[/api/reset] Executing: ${cmd}`);
+    exec(cmd, { shell: '/bin/bash', timeout: 60000 }, (error, stdout, stderr) => {
+        if (stdout) console.log(`[/api/reset] stdout: ${stdout}`);
+        if (stderr) console.log(`[/api/reset] stderr: ${stderr}`);
         if (error) {
-            console.error(`Error: ${error}`);
-            return res.status(500).json({ error: 'Failed to reset rotation' });
+            console.error(`[/api/reset] Error: ${error.message}`);
+            console.error(`[/api/reset] Exit code: ${error.code}`);
+            return res.status(500).json({ error: 'Failed to reset rotation', detail: stderr || error.message });
         }
+        console.log(`[/api/reset] Success for ${imageName}`);
         res.json({ success: true });
     });
 });
@@ -516,6 +542,8 @@ app.post('/api/save', (req, res) => {
     if (!imageName) {
         return res.status(400).json({ error: 'Missing image name' });
     }
+
+    console.log(`[/api/save] Saving assessment for: ${imageName} template=${template} bg_channel=${background_channel} rotations=${JSON.stringify(rotations)}`);
 
     const saved = readOrientations();
     const entry = saved[imageName] || {};
@@ -531,6 +559,7 @@ app.post('/api/save', (req, res) => {
 
     saved[imageName] = entry;
     writeOrientations(saved);
+    console.log(`[/api/save] Success for ${imageName}`);
     res.json({ success: true });
 });
 
@@ -540,8 +569,10 @@ app.post('/api/approve', (req, res) => {
         return res.status(400).json({ error: 'Missing image name' });
     }
 
+    console.log(`[/api/approve] Approving: ${imageName}`);
     const saved = readOrientations();
     if (!saved[imageName]) {
+        console.error(`[/api/approve] Image not saved yet: ${imageName}`);
         return res.status(400).json({ error: 'Image not saved yet - save changes first' });
     }
 
@@ -550,29 +581,35 @@ app.post('/api/approve', (req, res) => {
 
     writeOrientations(saved);
 
+    console.log(`[/api/approve] Success for ${imageName}`);
     res.json({ success: true, message: 'Image approved for review' });
 });
 
 app.post('/api/queue-alignment', (req, res) => {
     const imageBase = req.body.image_base;
+    console.log(`[/api/queue-alignment] Request for: ${imageBase}`);
     if (!imageBase) {
         return res.status(400).json({ error: 'Missing image_base' });
     }
 
     // Prevent duplicate preparation
     if (preparingImages.has(imageBase)) {
+        console.log(`[/api/queue-alignment] Already preparing: ${imageBase}`);
         return res.json({ success: true, message: 'Image is already being prepared for alignment' });
     }
 
     // Prevent re-queuing if already queued/processing
     if (alignmentQueue.includes(imageBase) || alignmentStatus[imageBase]?.status === 'processing') {
+        console.log(`[/api/queue-alignment] Already queued/processing: ${imageBase}`);
         return res.json({ success: true, message: 'Image is already queued or processing' });
     }
 
     const saved = readOrientations();
     // Find the image by base name
     const imageKey = Object.keys(saved).find(key => key.split('/').pop() === imageBase);
+    console.log(`[/api/queue-alignment] imageKey lookup: ${imageBase} → ${imageKey || 'NOT FOUND'}`);
     if (!imageKey || !saved[imageKey].approved) {
+        console.error(`[/api/queue-alignment] Not approved or not found: imageBase=${imageBase} imageKey=${imageKey} approved=${saved[imageKey]?.approved}`);
         return res.status(400).json({ error: 'Image must be approved before queuing for alignment' });
     }
 
@@ -584,18 +621,22 @@ app.post('/api/queue-alignment', (req, res) => {
 
     const needsNrrd = !fs.existsSync(nrrdFile);
     const needsChannels = !fs.existsSync(signalFile) || !fs.existsSync(backgroundFile);
+    console.log(`[/api/queue-alignment] Prerequisites: nrrd=${nrrdFile} exists=${!needsNrrd}, signal=${signalFile} exists=${fs.existsSync(signalFile)}, bg=${backgroundFile} exists=${fs.existsSync(backgroundFile)}`);
 
     // If all prerequisites exist, queue immediately
     if (!needsNrrd && !needsChannels) {
+        console.log(`[/api/queue-alignment] All prerequisites exist, queuing immediately: ${imageBase}`);
         queueAlignment(imageBase);
         return res.json({ success: true, message: 'Image queued for CMTK alignment' });
     }
 
     // Prerequisites need to be created - respond immediately and prepare in background
     if (needsNrrd && !fs.existsSync(tiffFile)) {
+        console.error(`[/api/queue-alignment] Source TIFF not found: ${tiffFile}`);
         return res.status(400).json({ error: 'Source TIFF file not found' });
     }
 
+    console.log(`[/api/queue-alignment] Starting preparation for ${imageBase} (needsNrrd=${needsNrrd}, needsChannels=${needsChannels})`);
     preparingImages.add(imageBase);
     alignmentStatus[imageBase] = { status: 'preparing', progress: 0, error: '', queued_at: new Date().toISOString() };
     writeAlignmentState();
@@ -617,13 +658,19 @@ function prepareAndQueue(imageBase, needsNrrd) {
             return;
         }
 
-        console.log(`Channel files missing for ${imageBase}, creating them...`);
-        const splitProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 split_channels.py ' + shellEscape(imageBase)], { cwd: __dirname });
+        const splitCmd = 'source venv/bin/activate && python3 split_channels.py ' + shellEscape(imageBase);
+        console.log(`[prepareAndQueue] Channel files missing for ${imageBase}, creating them...`);
+        console.log(`[prepareAndQueue] Executing: ${splitCmd}`);
+        const splitProcess = spawn('bash', ['-c', splitCmd], { cwd: __dirname });
+
+        splitProcess.stdout.on('data', (data) => console.log(`[split_channels ${imageBase}] ${data.toString().trim()}`));
+        splitProcess.stderr.on('data', (data) => console.error(`[split_channels ${imageBase} ERR] ${data.toString().trim()}`));
 
         splitProcess.on('close', (code) => {
+            console.log(`[split_channels ${imageBase}] Exited with code ${code}`);
             preparingImages.delete(imageBase);
             if (code !== 0) {
-                console.error(`Failed to create channel files for ${imageBase}`);
+                console.error(`[prepareAndQueue] Failed to create channel files for ${imageBase} (exit code ${code})`);
                 alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
                 writeAlignmentState();
                 return;
@@ -633,20 +680,26 @@ function prepareAndQueue(imageBase, needsNrrd) {
 
         splitProcess.on('error', (err) => {
             preparingImages.delete(imageBase);
-            console.error(`Error running split_channels.py: ${err}`);
+            console.error(`[prepareAndQueue] Error running split_channels.py for ${imageBase}: ${err}`);
             alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
             writeAlignmentState();
         });
     }
 
     if (needsNrrd) {
-        console.log(`NRRD file missing for ${imageBase}, converting from TIFF...`);
-        const convertProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + shellEscape(imageBase)], { cwd: __dirname });
+        const convertCmd = 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + shellEscape(imageBase);
+        console.log(`[prepareAndQueue] NRRD file missing for ${imageBase}, converting from TIFF...`);
+        console.log(`[prepareAndQueue] Executing: ${convertCmd}`);
+        const convertProcess = spawn('bash', ['-c', convertCmd], { cwd: __dirname });
+
+        convertProcess.stdout.on('data', (data) => console.log(`[convert_tiff ${imageBase}] ${data.toString().trim()}`));
+        convertProcess.stderr.on('data', (data) => console.error(`[convert_tiff ${imageBase} ERR] ${data.toString().trim()}`));
 
         convertProcess.on('close', (code) => {
+            console.log(`[convert_tiff ${imageBase}] Exited with code ${code}`);
             if (code !== 0) {
                 preparingImages.delete(imageBase);
-                console.error(`Failed to convert TIFF to NRRD for ${imageBase}`);
+                console.error(`[prepareAndQueue] Failed to convert TIFF to NRRD for ${imageBase} (exit code ${code})`);
                 alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
                 writeAlignmentState();
                 return;
@@ -656,11 +709,12 @@ function prepareAndQueue(imageBase, needsNrrd) {
 
         convertProcess.on('error', (err) => {
             preparingImages.delete(imageBase);
-            console.error(`Error running convert_tiff_to_nrrd.py: ${err}`);
+            console.error(`[prepareAndQueue] Error running convert_tiff_to_nrrd.py for ${imageBase}: ${err}`);
             alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
             writeAlignmentState();
         });
     } else {
+        console.log(`[prepareAndQueue] NRRD exists, proceeding to channel splitting for ${imageBase}`);
         createChannelsThenQueue();
     }
 }
