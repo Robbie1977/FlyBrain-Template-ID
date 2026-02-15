@@ -554,6 +554,10 @@
             const rejectBtn = document.getElementById('reject-alignment-btn');
             const statusText = document.getElementById('approval-status-text');
 
+            // Always reset button text in case a previous action left them modified
+            approveBtn.textContent = '\u2713 Approve Alignment';
+            rejectBtn.textContent = '\u2717 Reject & Re-orient';
+
             if (approvalSt === 'approved') {
                 approveBtn.disabled = true;
                 rejectBtn.disabled = false;
@@ -872,6 +876,7 @@
                 closeDetail();
             } catch (err) {
                 alert('Failed to reject alignment: ' + err.message);
+            } finally {
                 btn.textContent = '\u2717 Reject & Re-orient';
                 btn.disabled = false;
             }
