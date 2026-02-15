@@ -44,7 +44,7 @@ ENV PATH="/app/venv/bin:${PATH}"
 RUN pip install --no-cache-dir \
         tifffile \
         pynrrd \
-        numpy \
+        "numpy<2" \
         scipy \
         matplotlib
 
