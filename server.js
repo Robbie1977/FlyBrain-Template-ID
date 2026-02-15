@@ -623,6 +623,14 @@ app.post('/api/save', (req, res) => {
     };
     entry.saved_at = new Date().toISOString();
 
+    // Clear alignment rejection flags so image can be re-approved and re-queued
+    if (entry.alignment_rejected) {
+        console.log(`[/api/save] Clearing rejection flags for: ${imageName}`);
+        delete entry.alignment_rejected;
+        delete entry.alignment_rejected_at;
+        delete entry.alignment_rejection_reason;
+    }
+
     saved[imageName] = entry;
     writeOrientations(saved);
     console.log(`[/api/save] Success for ${imageName}`);
@@ -644,6 +652,11 @@ app.post('/api/approve', (req, res) => {
 
     saved[imageName].approved = true;
     saved[imageName].approved_at = new Date().toISOString();
+
+    // Clear any lingering rejection flags
+    delete saved[imageName].alignment_rejected;
+    delete saved[imageName].alignment_rejected_at;
+    delete saved[imageName].alignment_rejection_reason;
 
     writeOrientations(saved);
 
