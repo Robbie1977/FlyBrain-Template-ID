@@ -69,9 +69,44 @@ nrrd.write('JRCVNC2018U_template_lps.nrrd', data, header)
 "
 fi
 
-# Initialise orientations.json if missing (on the processing volume)
-if [ ! -f /app/orientations.json ]; then
-    echo "{}" > /app/orientations.json
+# ── Persistent state files ──
+# These must live on mounted volumes so they survive container restarts.
+# Store them in /data/processing/ which is a mounted volume.
+
+# orientations.json — image review/approval state
+if [ ! -f /data/processing/orientations.json ]; then
+    # Migrate from old location if it exists in the container
+    if [ -f /app/orientations.json ] && [ ! -L /app/orientations.json ]; then
+        echo "  Migrating orientations.json to /data/processing/"
+        cp /app/orientations.json /data/processing/orientations.json
+        rm /app/orientations.json
+    else
+        echo "{}" > /data/processing/orientations.json
+    fi
+fi
+# Create symlink so the app still reads /app/orientations.json
+if [ -f /app/orientations.json ] && [ ! -L /app/orientations.json ]; then
+    rm /app/orientations.json
+fi
+if [ ! -L /app/orientations.json ]; then
+    ln -s /data/processing/orientations.json /app/orientations.json
+    echo "  orientations.json → /data/processing/orientations.json"
+fi
+
+# alignment_progress.json — alignment queue/job state
+if [ ! -f /data/processing/alignment_progress.json ]; then
+    if [ -f /app/alignment_progress.json ] && [ ! -L /app/alignment_progress.json ]; then
+        echo "  Migrating alignment_progress.json to /data/processing/"
+        cp /app/alignment_progress.json /data/processing/alignment_progress.json
+        rm /app/alignment_progress.json
+    fi
+fi
+if [ -f /app/alignment_progress.json ] && [ ! -L /app/alignment_progress.json ]; then
+    rm /app/alignment_progress.json
+fi
+if [ ! -L /app/alignment_progress.json ]; then
+    ln -s /data/processing/alignment_progress.json /app/alignment_progress.json
+    echo "  alignment_progress.json → /data/processing/alignment_progress.json"
 fi
 
 echo "=== Starting server ==="

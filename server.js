@@ -96,6 +96,72 @@ function loadPersistedState() {
     }
     currentAlignment = null;
     console.log(`Loaded persisted state: ${Object.keys(alignmentStatus).length} jobs, ${alignmentQueue.length} queued`);
+
+    // Recover completed alignments from corrected/ directory files
+    // This handles the case where alignment_progress.json was lost (e.g., container restart
+    // before the fix to store it on a mounted volume)
+    recoverCompletedAlignments();
+}
+
+function recoverCompletedAlignments() {
+    const correctedDir = path.join(__dirname, 'corrected');
+    if (!fs.existsSync(correctedDir)) return;
+
+    let recovered = 0;
+    try {
+        const files = fs.readdirSync(correctedDir);
+        // Find per-job progress files: {imageBase}_alignment_progress.json
+        const progressFiles = files.filter(f => f.endsWith('_alignment_progress.json'));
+
+        for (const pf of progressFiles) {
+            const imageBase = pf.replace('_alignment_progress.json', '');
+
+            // Skip if we already have state for this job
+            if (alignmentStatus[imageBase]) continue;
+
+            try {
+                const progress = JSON.parse(fs.readFileSync(path.join(correctedDir, pf), 'utf8'));
+
+                // Check if alignment actually completed
+                if (progress.current_stage === 'completed' || progress.completed_at) {
+                    alignmentStatus[imageBase] = {
+                        status: 'completed',
+                        progress: 100,
+                        current_stage: 'completed',
+                        stages: progress.stages || {},
+                        error: '',
+                        queued_at: progress.started_at || '',
+                        started_at: progress.started_at || '',
+                        completed_at: progress.completed_at || ''
+                    };
+                    recovered++;
+                    console.log(`  Recovered completed alignment: ${imageBase}`);
+                } else if (progress.error || progress.failed_at) {
+                    alignmentStatus[imageBase] = {
+                        status: 'failed',
+                        progress: 0,
+                        current_stage: progress.current_stage || 'unknown',
+                        stages: progress.stages || {},
+                        error: progress.error || 'Unknown error (recovered from disk)',
+                        queued_at: progress.started_at || '',
+                        started_at: progress.started_at || '',
+                        completed_at: progress.failed_at || ''
+                    };
+                    recovered++;
+                    console.log(`  Recovered failed alignment: ${imageBase}`);
+                }
+            } catch (e) {
+                // Corrupted progress file, skip
+            }
+        }
+
+        if (recovered > 0) {
+            console.log(`Recovered ${recovered} alignment(s) from corrected/ directory`);
+            writeAlignmentState();
+        }
+    } catch (e) {
+        console.error('Error during alignment recovery:', e.message);
+    }
 }
 
 function getJobStageProgress(imageBase) {
