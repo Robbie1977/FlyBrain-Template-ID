@@ -989,6 +989,140 @@ print('Thumbnails regenerated successfully')
     });
 });
 
+// --- Pipeline Status ---
+app.get('/api/pipeline-status', (req, res) => {
+    try {
+        const imagesDir = path.join(__dirname, 'Images');
+        const getTiffs = (dir) => {
+            let tiffs = [];
+            const items = fs.readdirSync(dir);
+            for (const item of items) {
+                const fullPath = path.join(dir, item);
+                const stat = fs.statSync(fullPath);
+                if (stat.isDirectory()) {
+                    tiffs = tiffs.concat(getTiffs(fullPath));
+                } else if ((item.endsWith('.tif') || item.endsWith('.tiff')) && !item.includes('.original')) {
+                    tiffs.push(path.relative(imagesDir, fullPath).replace(/\.tif$/, '').replace(/\.tiff$/, ''));
+                }
+            }
+            return tiffs;
+        };
+        const images = getTiffs(imagesDir);
+        const orientations = readOrientations();
+        const alignState = readAlignmentState();
+        const jobs = { ...alignmentStatus, ...(alignState.jobs || {}) };
+
+        const result = images.map(imageName => {
+            const imageBase = imageName.split('/').pop();
+            const entry = orientations[imageName] || {};
+            const job = jobs[imageBase];
+
+            let status = 'needs_orientation';
+            let details = {};
+
+            // Status priority (highest wins)
+            if (entry.alignment_approved) {
+                status = 'complete';
+                details.alignment_approved_at = entry.alignment_approved_at;
+            } else if (entry.alignment_rejected) {
+                status = 'rejected';
+                details.alignment_rejection_reason = entry.alignment_rejection_reason;
+                details.alignment_rejected_at = entry.alignment_rejected_at;
+            } else if (job && job.status === 'completed') {
+                status = 'aligned';
+                details.completed_at = job.completed_at;
+            } else if (job && job.status === 'processing') {
+                status = 'aligning';
+                details.progress = job.progress;
+            } else if (job && (job.status === 'queued' || job.status === 'preparing')) {
+                status = 'queued';
+            } else if (job && job.status === 'failed') {
+                status = 'failed';
+                details.error = job.error;
+            } else if (entry.approved) {
+                status = 'approved';
+                details.approved_at = entry.approved_at;
+            } else if (entry.manual_corrections) {
+                status = 'saved';
+                details.saved_at = entry.saved_at;
+            }
+
+            return { image_name: imageName, image_base: imageBase, status, details };
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('[/api/pipeline-status] Error:', err.message);
+        res.status(500).json({ error: 'Failed to compute pipeline status' });
+    }
+});
+
+// --- Approve Alignment ---
+app.post('/api/approve-alignment', (req, res) => {
+    const imageBase = req.body.image_base;
+    if (!imageBase) {
+        return res.status(400).json({ error: 'Missing image_base' });
+    }
+
+    console.log(`[/api/approve-alignment] Approving alignment for: ${imageBase}`);
+    const saved = readOrientations();
+    const imageKey = Object.keys(saved).find(key => key.split('/').pop() === imageBase);
+    if (!imageKey) {
+        return res.status(400).json({ error: 'Image not found in orientations' });
+    }
+
+    saved[imageKey].alignment_approved = true;
+    saved[imageKey].alignment_approved_at = new Date().toISOString();
+    // Clear any previous rejection
+    delete saved[imageKey].alignment_rejected;
+    delete saved[imageKey].alignment_rejected_at;
+    delete saved[imageKey].alignment_rejection_reason;
+
+    writeOrientations(saved);
+    console.log(`[/api/approve-alignment] Success for ${imageBase}`);
+    res.json({ success: true });
+});
+
+// --- Reject Alignment ---
+app.post('/api/reject-alignment', (req, res) => {
+    const imageBase = req.body.image_base;
+    const reason = req.body.reason || '';
+    if (!imageBase) {
+        return res.status(400).json({ error: 'Missing image_base' });
+    }
+
+    console.log(`[/api/reject-alignment] Rejecting alignment for: ${imageBase} reason="${reason}"`);
+    const saved = readOrientations();
+    const imageKey = Object.keys(saved).find(key => key.split('/').pop() === imageBase);
+    if (!imageKey) {
+        return res.status(400).json({ error: 'Image not found in orientations' });
+    }
+
+    saved[imageKey].alignment_rejected = true;
+    saved[imageKey].alignment_rejected_at = new Date().toISOString();
+    saved[imageKey].alignment_rejection_reason = reason;
+    // Clear approved flag so image goes back to orientation review
+    delete saved[imageKey].approved;
+    delete saved[imageKey].approved_at;
+    delete saved[imageKey].alignment_approved;
+    delete saved[imageKey].alignment_approved_at;
+
+    writeOrientations(saved);
+
+    // Clear alignment job from alignment_progress.json
+    if (alignmentStatus[imageBase]) {
+        delete alignmentStatus[imageBase];
+    }
+    const index = alignmentQueue.indexOf(imageBase);
+    if (index > -1) {
+        alignmentQueue.splice(index, 1);
+    }
+    writeAlignmentState();
+
+    console.log(`[/api/reject-alignment] Success for ${imageBase}`);
+    res.json({ success: true });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
     // Load persisted state, then detect any running alignment processes

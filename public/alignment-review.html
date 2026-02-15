@@ -181,6 +181,59 @@
         }
         .regen-btn:hover { background: #e67e22; }
         .regen-btn:disabled { opacity: 0.5; cursor: wait; }
+
+        /* Approval buttons */
+        .approval-row {
+            display: flex; gap: 12px; align-items: center;
+            margin-top: 16px; padding-top: 16px; border-top: 2px solid #ecf0f1;
+            flex-wrap: wrap;
+        }
+        .btn-approve {
+            padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer;
+            font-size: 13px; font-weight: bold; background: #27ae60; color: white;
+        }
+        .btn-approve:hover { background: #1e8449; }
+        .btn-approve:disabled { opacity: 0.5; cursor: default; }
+        .btn-reject {
+            padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer;
+            font-size: 13px; font-weight: bold; background: #e74c3c; color: white;
+        }
+        .btn-reject:hover { background: #c0392b; }
+        .btn-reject:disabled { opacity: 0.5; cursor: default; }
+        .approval-status {
+            font-size: 13px; color: #7f8c8d; margin-left: auto;
+        }
+
+        /* Status badge on gallery cards */
+        .card-status-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 10px; font-weight: bold; text-transform: uppercase;
+            margin-top: 4px;
+        }
+        .card-status-badge.pending { background: #fdebd0; color: #e67e22; }
+        .card-status-badge.approved { background: #d5f5e3; color: #27ae60; }
+        .card-status-badge.rejected { background: #fadbd8; color: #e74c3c; }
+
+        .gallery-card.approved-card { border-color: #27ae60; }
+        .gallery-card.rejected-card { border-color: #e74c3c; }
+
+        /* Gallery filter bar */
+        .gallery-filter {
+            display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;
+        }
+        .gallery-filter-label { font-size: 13px; font-weight: bold; color: #7f8c8d; }
+        .gallery-filter-btn {
+            padding: 5px 12px; border: 1px solid #bdc3c7; border-radius: 14px;
+            background: white; color: #7f8c8d; cursor: pointer; font-size: 12px;
+        }
+        .gallery-filter-btn:hover { background: #ecf0f1; }
+        .gallery-filter-btn.active { background: #3498db; color: white; border-color: #3498db; }
+        .gallery-filter-btn .gf-count {
+            display: inline-block; min-width: 14px; text-align: center;
+            background: rgba(0,0,0,0.1); border-radius: 7px; padding: 0 4px;
+            font-size: 10px; margin-left: 3px;
+        }
+        .gallery-filter-btn.active .gf-count { background: rgba(255,255,255,0.3); }
     </style>
 </head>
 <body>
@@ -245,10 +298,23 @@
             <!-- Comparison views -->
             <div id="comparison-container"></div>
 
+            <!-- Signal-on-Template section -->
+            <div class="signal-section" id="signal-on-template-section" style="display:none;">
+                <h3>Signal (green) on Template (magenta)</h3>
+                <div class="signal-grid" id="signal-on-template-grid"></div>
+            </div>
+
             <!-- Signal section -->
             <div class="signal-section" id="signal-section" style="display:none;">
                 <h3>Aligned Signal Channel</h3>
                 <div class="signal-grid" id="signal-grid"></div>
+            </div>
+
+            <!-- Approval row -->
+            <div class="approval-row" id="approval-row">
+                <button class="btn-approve" id="approve-alignment-btn" onclick="approveAlignment()">&#10003; Approve Alignment</button>
+                <button class="btn-reject" id="reject-alignment-btn" onclick="rejectAlignment()">&#10007; Reject &amp; Re-orient</button>
+                <span class="approval-status" id="approval-status-text"></span>
             </div>
         </div>
 
@@ -256,6 +322,13 @@
         <div class="gallery-header">
             <h2>Completed Alignments</h2>
             <span class="count" id="gallery-count"></span>
+        </div>
+        <div class="gallery-filter" id="gallery-filter">
+            <span class="gallery-filter-label">Show:</span>
+            <button class="gallery-filter-btn active" data-gf="all" onclick="applyGalleryFilter('all')">All <span class="gf-count" id="gf-count-all">0</span></button>
+            <button class="gallery-filter-btn" data-gf="pending" onclick="applyGalleryFilter('pending')">Pending Review <span class="gf-count" id="gf-count-pending">0</span></button>
+            <button class="gallery-filter-btn" data-gf="approved" onclick="applyGalleryFilter('approved')">Approved <span class="gf-count" id="gf-count-approved">0</span></button>
+            <button class="gallery-filter-btn" data-gf="rejected" onclick="applyGalleryFilter('rejected')">Rejected <span class="gf-count" id="gf-count-rejected">0</span></button>
         </div>
         <div id="gallery-container">
             <div class="loading">
@@ -267,9 +340,25 @@
 
     <script>
         let allJobs = [];       // completed alignment jobs
+        let displayedJobs = []; // filtered jobs shown in gallery
         let thumbnailCache = {};// image_base -> thumbnail data
+        let orientationsData = {};
         let currentIndex = -1;
         let currentMode = 'overlay';
+        let currentGalleryFilter = 'all';
+
+        // ────────────────────────────
+        // Helper: get approval status for a job
+        // ────────────────────────────
+        function getApprovalStatus(job) {
+            const key = job._savedKey;
+            if (!key) return 'pending';
+            const entry = orientationsData[key];
+            if (!entry) return 'pending';
+            if (entry.alignment_approved) return 'approved';
+            if (entry.alignment_rejected) return 'rejected';
+            return 'pending';
+        }
 
         // ────────────────────────────
         // Data loading
@@ -281,6 +370,8 @@
                     fetch('/api/saved').then(r => r.json())
                 ]);
 
+                orientationsData = savedRes;
+
                 allJobs = statusRes
                     .filter(j => j.status === 'completed')
                     .sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at));
@@ -291,12 +382,12 @@
                     if (key) job._savedKey = key;
                 });
 
-                renderGallery();
+                applyGalleryFilter(currentGalleryFilter);
 
                 // Check URL hash for direct link
                 if (window.location.hash) {
                     const target = decodeURIComponent(window.location.hash.slice(1));
-                    const idx = allJobs.findIndex(j => j.image_base === target);
+                    const idx = displayedJobs.findIndex(j => j.image_base === target);
                     if (idx >= 0) selectImage(idx);
                 }
             } catch (err) {
@@ -316,30 +407,65 @@
         }
 
         // ────────────────────────────
+        // Gallery filtering
+        // ────────────────────────────
+        function applyGalleryFilter(filter) {
+            currentGalleryFilter = filter;
+            document.querySelectorAll('.gallery-filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.gf === filter);
+            });
+
+            // Compute counts
+            const counts = { all: allJobs.length, pending: 0, approved: 0, rejected: 0 };
+            allJobs.forEach(job => {
+                const st = getApprovalStatus(job);
+                if (counts[st] !== undefined) counts[st]++;
+            });
+            Object.keys(counts).forEach(k => {
+                const el = document.getElementById(`gf-count-${k}`);
+                if (el) el.textContent = counts[k];
+            });
+
+            if (filter === 'all') {
+                displayedJobs = [...allJobs];
+            } else {
+                displayedJobs = allJobs.filter(job => getApprovalStatus(job) === filter);
+            }
+
+            renderGallery();
+        }
+
+        // ────────────────────────────
         // Gallery rendering
         // ────────────────────────────
         function renderGallery() {
             const container = document.getElementById('gallery-container');
             const countEl = document.getElementById('gallery-count');
-            countEl.textContent = `${allJobs.length} completed alignment${allJobs.length !== 1 ? 's' : ''}`;
+            countEl.textContent = `${displayedJobs.length} completed alignment${displayedJobs.length !== 1 ? 's' : ''}`;
 
-            if (allJobs.length === 0) {
-                container.innerHTML = '<div class="empty-state">No completed alignments yet. Queue images for alignment from the <a href="/">Image Review</a> page.</div>';
+            if (displayedJobs.length === 0) {
+                container.innerHTML = '<div class="empty-state">No alignments match the current filter. Queue images for alignment from the <a href="/">Image Review</a> page.</div>';
                 return;
             }
 
             const grid = document.createElement('div');
             grid.className = 'gallery-grid';
 
-            allJobs.forEach((job, idx) => {
+            displayedJobs.forEach((job, idx) => {
                 const card = document.createElement('div');
-                card.className = 'gallery-card' + (idx === currentIndex ? ' active' : '');
+                const approvalSt = getApprovalStatus(job);
+                let cardClass = 'gallery-card' + (idx === currentIndex ? ' active' : '');
+                if (approvalSt === 'approved') cardClass += ' approved-card';
+                if (approvalSt === 'rejected') cardClass += ' rejected-card';
+                card.className = cardClass;
                 card.onclick = () => selectImage(idx);
 
                 const duration = (job.started_at && job.completed_at)
                     ? formatDuration((new Date(job.completed_at) - new Date(job.started_at)) / 1000)
                     : '';
-                const template = job.stages ? 'CMTK aligned' : '';
+
+                const badgeLabels = { pending: 'Pending Review', approved: 'Approved \u2713', rejected: 'Rejected \u2717' };
+                const badgeHtml = `<span class="card-status-badge ${approvalSt}">${badgeLabels[approvalSt]}</span>`;
 
                 card.innerHTML = `
                     <div class="card-thumbs" id="card-thumbs-${idx}">
@@ -350,6 +476,7 @@
                     <div class="card-info">
                         <div class="card-title">${job.image_base}</div>
                         <div class="card-meta">${formatTime(job.completed_at)}${duration ? ' &middot; ' + duration : ''}</div>
+                        ${badgeHtml}
                     </div>
                 `;
                 grid.appendChild(card);
@@ -378,7 +505,7 @@
         // ────────────────────────────
         async function selectImage(idx) {
             currentIndex = idx;
-            const job = allJobs[idx];
+            const job = displayedJobs[idx];
             window.location.hash = encodeURIComponent(job.image_base);
 
             // Highlight active card
@@ -392,6 +519,9 @@
 
             document.getElementById('detail-title').textContent = job.image_base;
             updateNav();
+
+            // Update approval status display
+            updateApprovalUI(job);
 
             // Meta info
             const duration = (job.started_at && job.completed_at)
@@ -413,7 +543,35 @@
                 document.getElementById('comparison-container').innerHTML =
                     '<div class="empty-state">Failed to load thumbnails for this image.</div>';
                 document.getElementById('signal-section').style.display = 'none';
+                document.getElementById('signal-on-template-section').style.display = 'none';
                 console.error(err);
+            }
+        }
+
+        function updateApprovalUI(job) {
+            const approvalSt = getApprovalStatus(job);
+            const approveBtn = document.getElementById('approve-alignment-btn');
+            const rejectBtn = document.getElementById('reject-alignment-btn');
+            const statusText = document.getElementById('approval-status-text');
+
+            if (approvalSt === 'approved') {
+                approveBtn.disabled = true;
+                rejectBtn.disabled = false;
+                const entry = orientationsData[job._savedKey];
+                statusText.innerHTML = '\u2714 Alignment approved' + (entry && entry.alignment_approved_at ? ' at ' + formatTime(entry.alignment_approved_at) : '');
+                statusText.style.color = '#27ae60';
+            } else if (approvalSt === 'rejected') {
+                approveBtn.disabled = false;
+                rejectBtn.disabled = true;
+                const entry = orientationsData[job._savedKey];
+                const reason = entry && entry.alignment_rejection_reason ? ' — ' + entry.alignment_rejection_reason : '';
+                statusText.innerHTML = '\u2717 Alignment rejected' + reason;
+                statusText.style.color = '#e74c3c';
+            } else {
+                approveBtn.disabled = false;
+                rejectBtn.disabled = false;
+                statusText.innerHTML = 'Pending review';
+                statusText.style.color = '#7f8c8d';
             }
         }
 
@@ -463,8 +621,27 @@
                         </div>
                     </div>
                 `).join('');
+
+                // Signal-on-template (client-side compositing)
+                const sotSection = document.getElementById('signal-on-template-section');
+                sotSection.style.display = 'block';
+                const sotGrid = document.getElementById('signal-on-template-grid');
+                sotGrid.innerHTML = axes.map(ax => `
+                    <div class="signal-axis">
+                        <h4>${ax.label}</h4>
+                        <div class="signal-img">
+                            <canvas id="sot-canvas-${ax.key}" style="width:100%;height:auto;border-radius:4px;"></canvas>
+                        </div>
+                    </div>
+                `).join('');
+
+                // Draw signal-on-template overlay canvases
+                axes.forEach(ax => {
+                    drawSignalOnTemplate(ax.key, th[`${ax.key}_template`], th[`${ax.key}_signal`]);
+                });
             } else {
                 signalSection.style.display = 'none';
+                document.getElementById('signal-on-template-section').style.display = 'none';
             }
         }
 
@@ -643,19 +820,117 @@
         }
 
         // ────────────────────────────
+        // Approval / Rejection
+        // ────────────────────────────
+        async function approveAlignment() {
+            const job = displayedJobs[currentIndex];
+            if (!job) return;
+            const btn = document.getElementById('approve-alignment-btn');
+            btn.disabled = true;
+            btn.textContent = 'Approving...';
+            try {
+                const res = await fetch('/api/approve-alignment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_base: job.image_base })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed');
+                // Refresh orientations data
+                orientationsData = await fetch('/api/saved').then(r => r.json());
+                // Update saved key
+                const key = Object.keys(orientationsData).find(k => k.split('/').pop() === job.image_base);
+                if (key) job._savedKey = key;
+                updateApprovalUI(job);
+                applyGalleryFilter(currentGalleryFilter);
+            } catch (err) {
+                alert('Failed to approve alignment: ' + err.message);
+            } finally {
+                btn.textContent = '\u2713 Approve Alignment';
+                btn.disabled = false;
+            }
+        }
+
+        async function rejectAlignment() {
+            const job = displayedJobs[currentIndex];
+            if (!job) return;
+            const reason = prompt('Reason for rejection (optional):');
+            if (reason === null) return; // User cancelled
+            const btn = document.getElementById('reject-alignment-btn');
+            btn.disabled = true;
+            btn.textContent = 'Rejecting...';
+            try {
+                const res = await fetch('/api/reject-alignment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_base: job.image_base, reason })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed');
+                // Refresh data — the job may be removed from the list
+                await loadData();
+                closeDetail();
+            } catch (err) {
+                alert('Failed to reject alignment: ' + err.message);
+                btn.textContent = '\u2717 Reject & Re-orient';
+                btn.disabled = false;
+            }
+        }
+
+        // ────────────────────────────
+        // Signal on Template canvas
+        // ────────────────────────────
+        async function drawSignalOnTemplate(axis, templateB64, signalB64) {
+            const canvas = document.getElementById(`sot-canvas-${axis}`);
+            if (!canvas || !templateB64 || !signalB64) return;
+
+            const [tImg, sImg] = await Promise.all([
+                loadImageFromBase64(templateB64),
+                loadImageFromBase64(signalB64)
+            ]);
+
+            const w = Math.max(tImg.width, sImg.width);
+            const h = Math.max(tImg.height, sImg.height);
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+
+            // Draw template for pixel data
+            ctx.drawImage(tImg, 0, 0, w, h);
+            const tData = ctx.getImageData(0, 0, w, h);
+
+            // Draw signal for pixel data
+            ctx.drawImage(sImg, 0, 0, w, h);
+            const sData = ctx.getImageData(0, 0, w, h);
+
+            // Create magenta (template) / green (signal) overlay
+            const output = ctx.createImageData(w, h);
+            for (let i = 0; i < tData.data.length; i += 4) {
+                const tGray = (tData.data[i] * 0.299 + tData.data[i+1] * 0.587 + tData.data[i+2] * 0.114) / 255;
+                const sGray = (sData.data[i] * 0.299 + sData.data[i+1] * 0.587 + sData.data[i+2] * 0.114) / 255;
+
+                output.data[i]   = Math.min(255, Math.round(tGray * 255));   // R = template (magenta)
+                output.data[i+1] = Math.min(255, Math.round(sGray * 255));   // G = signal
+                output.data[i+2] = Math.min(255, Math.round(tGray * 255));   // B = template (magenta)
+                output.data[i+3] = 255;
+            }
+            ctx.putImageData(output, 0, 0);
+        }
+
+        // ────────────────────────────
         // Navigation
         // ────────────────────────────
         function navigate(delta) {
             const newIdx = currentIndex + delta;
-            if (newIdx >= 0 && newIdx < allJobs.length) {
+            if (newIdx >= 0 && newIdx < displayedJobs.length) {
                 selectImage(newIdx);
             }
         }
 
         function updateNav() {
             document.getElementById('prev-btn').disabled = currentIndex <= 0;
-            document.getElementById('next-btn').disabled = currentIndex >= allJobs.length - 1;
-            document.getElementById('nav-position').textContent = `${currentIndex + 1} / ${allJobs.length}`;
+            document.getElementById('next-btn').disabled = currentIndex >= displayedJobs.length - 1;
+            document.getElementById('nav-position').textContent = `${currentIndex + 1} / ${displayedJobs.length}`;
         }
 
         function closeDetail() {

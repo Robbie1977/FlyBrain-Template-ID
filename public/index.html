@@ -264,6 +264,45 @@
         .view-label-highlight {
             background: #d5f5e3 !important; border-color: #27ae60 !important;
         }
+
+        /* Filter bar */
+        .filter-bar {
+            background: #34495e; padding: 10px 30px;
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        }
+        .filter-bar .filter-label {
+            color: #bdc3c7; font-size: 12px; font-weight: bold; margin-right: 4px;
+        }
+        .filter-btn {
+            padding: 5px 12px; border: 1px solid #5d6d7e; border-radius: 14px;
+            background: transparent; color: #bdc3c7; cursor: pointer;
+            font-size: 12px; transition: all 0.2s;
+        }
+        .filter-btn:hover { background: #5d6d7e; color: white; }
+        .filter-btn.active { background: #3498db; border-color: #3498db; color: white; }
+        .filter-btn .filter-count {
+            display: inline-block; min-width: 16px; height: 16px;
+            line-height: 16px; text-align: center; border-radius: 8px;
+            background: rgba(255,255,255,0.2); font-size: 10px; margin-left: 4px;
+            padding: 0 4px;
+        }
+        .filter-btn.active .filter-count { background: rgba(255,255,255,0.3); }
+
+        /* Pipeline status badge */
+        .status-pill {
+            display: inline-block; padding: 3px 10px; border-radius: 12px;
+            font-size: 11px; font-weight: bold; text-transform: uppercase;
+            margin-left: 8px; vertical-align: middle;
+        }
+        .status-pill.needs_orientation { background: #fadbd8; color: #e74c3c; }
+        .status-pill.saved { background: #fdebd0; color: #e67e22; }
+        .status-pill.approved { background: #d6eaf8; color: #2980b9; }
+        .status-pill.queued { background: #d6eaf8; color: #2980b9; }
+        .status-pill.aligning { background: #d6eaf8; color: #2980b9; }
+        .status-pill.aligned { background: #d5f5e3; color: #27ae60; }
+        .status-pill.complete { background: #27ae60; color: white; }
+        .status-pill.rejected { background: #fadbd8; color: #e74c3c; }
+        .status-pill.failed { background: #fadbd8; color: #e74c3c; }
     </style>
 </head>
 <body>
@@ -277,6 +316,18 @@
             <button onclick="window.open('/alignment-review.html', '_blank')">Alignment Review</button>
             <span class="progress" id="progress-text"></span>
         </div>
+    </div>
+
+    <div class="filter-bar" id="filter-bar">
+        <span class="filter-label">Filter:</span>
+        <button class="filter-btn active" data-filter="all" onclick="applyFilter('all')">All <span class="filter-count" id="count-all">0</span></button>
+        <button class="filter-btn" data-filter="needs_orientation" onclick="applyFilter('needs_orientation')">Needs Orientation <span class="filter-count" id="count-needs_orientation">0</span></button>
+        <button class="filter-btn" data-filter="saved" onclick="applyFilter('saved')">Saved <span class="filter-count" id="count-saved">0</span></button>
+        <button class="filter-btn" data-filter="approved" onclick="applyFilter('approved')">Approved <span class="filter-count" id="count-approved">0</span></button>
+        <button class="filter-btn" data-filter="aligning" onclick="applyFilter('aligning')">Aligning <span class="filter-count" id="count-aligning">0</span></button>
+        <button class="filter-btn" data-filter="aligned" onclick="applyFilter('aligned')">Aligned <span class="filter-count" id="count-aligned">0</span></button>
+        <button class="filter-btn" data-filter="complete" onclick="applyFilter('complete')">Complete <span class="filter-count" id="count-complete">0</span></button>
+        <button class="filter-btn" data-filter="rejected" onclick="applyFilter('rejected')">Rejected <span class="filter-count" id="count-rejected">0</span></button>
     </div>
 
     <div class="container">
@@ -500,6 +551,10 @@
         let imageData = null;
         let savedData = {};
         let images = [];
+        let filteredImages = [];
+        let pipelineStatus = []; // array from /api/pipeline-status
+        let pipelineStatusMap = {}; // image_name -> status entry
+        let currentFilter = 'all';
         let currentBgChannel = 1;
         let previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
         let originalThumbnails = {};
@@ -652,62 +707,150 @@
         }
 
         // --- Load image list ---
-        fetch('/api/images')
-            .then(r => {
-                if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                return r.json();
-            })
-            .then(data => {
-                images = data;
-                const select = $('image-select');
-                // Populate the select element with image options
-                select.innerHTML = ''; // Clear existing options
-                images.forEach(imageName => {
-                    const option = document.createElement('option');
-                    option.value = imageName;
-                    option.textContent = imageName;
-                    select.appendChild(option);
-                });
-                return fetch('/api/saved').then(r => {
-                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    return r.json();
-                });
-            })
-            .then(saved => {
-                savedData = saved;
+        async function initApp() {
+            try {
+                const [imagesRes, savedRes, statusRes] = await Promise.all([
+                    fetch('/api/images').then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+                    fetch('/api/saved').then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+                    fetch('/api/pipeline-status').then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                ]);
+                images = imagesRes;
+                savedData = savedRes;
+                pipelineStatus = statusRes;
+                pipelineStatusMap = {};
+                pipelineStatus.forEach(s => { pipelineStatusMap[s.image_name] = s; });
+                applyFilter(currentFilter);
                 updateProgress();
-                if (images.length > 0) loadImage(images[0]);
-            })
-            .catch(err => {
+                if (filteredImages.length > 0) loadImage(filteredImages[0]);
+            } catch (err) {
                 console.error('Failed to load initial data:', err);
                 $('loading').innerHTML = '<div style="color:#e74c3c;">Failed to load data. Check console.</div>';
                 $('loading').style.display = 'block';
+            }
+        }
+
+        async function refreshPipelineStatus() {
+            try {
+                const [savedRes, statusRes] = await Promise.all([
+                    fetch('/api/saved').then(r => r.json()),
+                    fetch('/api/pipeline-status').then(r => r.json())
+                ]);
+                savedData = savedRes;
+                pipelineStatus = statusRes;
+                pipelineStatusMap = {};
+                pipelineStatus.forEach(s => { pipelineStatusMap[s.image_name] = s; });
+                applyFilter(currentFilter);
+                updateProgress();
+            } catch (e) {
+                console.error('Failed to refresh pipeline status:', e);
+            }
+        }
+
+        function applyFilter(filter) {
+            currentFilter = filter;
+            // Update active filter button
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
             });
+
+            // Compute counts
+            const counts = { all: images.length, needs_orientation: 0, saved: 0, approved: 0, aligning: 0, aligned: 0, complete: 0, rejected: 0 };
+            images.forEach(img => {
+                const ps = pipelineStatusMap[img];
+                const st = ps ? ps.status : 'needs_orientation';
+                if (st === 'queued' || st === 'aligning') counts.aligning++;
+                else if (st === 'failed') counts.needs_orientation++; // lump failed into needs_orientation for filtering
+                else if (counts[st] !== undefined) counts[st]++;
+            });
+            Object.keys(counts).forEach(k => {
+                const el = $(`count-${k}`);
+                if (el) el.textContent = counts[k];
+            });
+
+            // Filter images
+            if (filter === 'all') {
+                filteredImages = [...images];
+            } else {
+                filteredImages = images.filter(img => {
+                    const ps = pipelineStatusMap[img];
+                    const st = ps ? ps.status : 'needs_orientation';
+                    if (filter === 'aligning') return st === 'queued' || st === 'aligning';
+                    if (filter === 'needs_orientation') return st === 'needs_orientation' || st === 'failed';
+                    return st === filter;
+                });
+            }
+
+            // Repopulate dropdown
+            const select = $('image-select');
+            select.innerHTML = '';
+            filteredImages.forEach(imageName => {
+                const option = document.createElement('option');
+                option.value = imageName;
+                const ps = pipelineStatusMap[imageName];
+                const stLabel = ps ? statusLabel(ps.status) : '';
+                option.textContent = stLabel ? `[${stLabel}] ${imageName}` : imageName;
+                select.appendChild(option);
+            });
+
+            // Keep current image selected if it's still in the filtered list
+            if (currentImage && filteredImages.includes(currentImage)) {
+                select.value = currentImage;
+            }
+        }
+
+        const STATUS_LABELS = {
+            needs_orientation: 'Needs Orientation',
+            saved: 'Saved',
+            approved: 'Approved',
+            queued: 'Queued',
+            aligning: 'Aligning',
+            aligned: 'Aligned',
+            complete: 'Complete',
+            rejected: 'Rejected',
+            failed: 'Failed'
+        };
+        function statusLabel(st) { return STATUS_LABELS[st] || st; }
+
+        initApp();
 
         // --- Navigation ---
         $('image-select').addEventListener('change', e => loadImage(e.target.value));
 
         $('prev-image').addEventListener('click', () => {
-            const idx = images.indexOf(currentImage);
+            const idx = filteredImages.indexOf(currentImage);
             if (idx > 0) {
-                $('image-select').value = images[idx - 1];
-                loadImage(images[idx - 1]);
+                $('image-select').value = filteredImages[idx - 1];
+                loadImage(filteredImages[idx - 1]);
             }
         });
 
         $('next-image').addEventListener('click', () => {
-            const idx = images.indexOf(currentImage);
-            if (idx < images.length - 1) {
-                $('image-select').value = images[idx + 1];
-                loadImage(images[idx + 1]);
+            const idx = filteredImages.indexOf(currentImage);
+            if (idx < filteredImages.length - 1) {
+                $('image-select').value = filteredImages[idx + 1];
+                loadImage(filteredImages[idx + 1]);
             }
         });
 
         function updateProgress() {
             const total = images.length;
-            const reviewed = Object.values(savedData).filter(d => d.manual_corrections).length;
-            const approved = Object.values(savedData).filter(d => d.approved).length;
-            $('progress-text').textContent = `${reviewed}/${total} reviewed, ${approved} approved`;
+            const counts = { needs_orientation: 0, saved: 0, approved: 0, aligning: 0, aligned: 0, complete: 0, rejected: 0 };
+            images.forEach(img => {
+                const ps = pipelineStatusMap[img];
+                const st = ps ? ps.status : 'needs_orientation';
+                if (st === 'queued' || st === 'aligning') counts.aligning++;
+                else if (st === 'failed') counts.needs_orientation++;
+                else if (counts[st] !== undefined) counts[st]++;
+            });
+            const parts = [];
+            if (counts.needs_orientation) parts.push(`${counts.needs_orientation} need orientation`);
+            if (counts.saved) parts.push(`${counts.saved} saved`);
+            if (counts.approved) parts.push(`${counts.approved} approved`);
+            if (counts.aligning) parts.push(`${counts.aligning} aligning`);
+            if (counts.aligned) parts.push(`${counts.aligned} aligned`);
+            if (counts.complete) parts.push(`${counts.complete} complete`);
+            if (counts.rejected) parts.push(`${counts.rejected} rejected`);
+            $('progress-text').textContent = `${total} images: ${parts.join(', ') || 'none loaded'}`;
         }
 
         function updateAlignmentStatus() {
@@ -859,11 +1002,7 @@
             $('rot-x').value = mc.rotations.x || 0;
             $('rot-y').value = mc.rotations.y || 0;
             $('rot-z').value = mc.rotations.z || 0;
-            if (saved.approved) {
-                $('approve-status').textContent = 'Approved for review at ' + saved.approved_at;
-                $('approve-review').disabled = true;
-                $('queue-alignment').style.display = 'inline-block';
-            }
+            // renderApproval() handles button state based on pipeline status
         }
 
         // --- Render ---
@@ -1107,24 +1246,47 @@
             const saved = savedData[currentImage];
             const hasMC = saved && saved.manual_corrections;
             const isApproved = saved && saved.approved;
-            
+            const ps = pipelineStatusMap[currentImage];
+            const pStatus = ps ? ps.status : 'needs_orientation';
+
+            // Pipeline status badge
+            const approveCard = $('approve-card');
+            let badgeHtml = `<span class="status-pill ${pStatus}">${statusLabel(pStatus)}</span>`;
+
             $('approve-review').disabled = !hasMC;
             $('queue-alignment').disabled = !isApproved;
-            
-            if (isApproved) {
-                $('approve-status').textContent = 'Approved for review at ' + saved.approved_at + '. Ready to queue for alignment.';
+
+            let statusMsg = '';
+
+            if (saved && saved.alignment_approved) {
+                statusMsg = 'Fully complete \u2714 — alignment approved at ' + saved.alignment_approved_at;
+                $('approve-review').disabled = true;
+                $('queue-alignment').style.display = 'none';
+            } else if (saved && saved.alignment_rejected) {
+                statusMsg = 'Alignment rejected — re-orient this image. Reason: ' + (saved.alignment_rejection_reason || 'No reason given');
+                $('approve-review').disabled = false;
+                $('queue-alignment').style.display = 'none';
+            } else if (pStatus === 'aligned') {
+                statusMsg = 'Alignment completed — <a href="/alignment-review.html#' + encodeURIComponent(currentImage.split('/').pop()) + '" target="_blank">review on Alignment Review page</a>';
+                $('approve-review').disabled = true;
+                $('queue-alignment').style.display = 'none';
+            } else if (isApproved) {
+                statusMsg = 'Approved for review at ' + saved.approved_at + '. Ready to queue for alignment.';
                 $('approve-review').disabled = true;
                 $('queue-alignment').style.display = 'inline-block';
-                $('approve-cmtk').style.display = 'none'; // Hide old button
             } else if (hasMC) {
-                $('approve-status').textContent = 'Assessment saved. Ready to approve for review.';
+                statusMsg = 'Assessment saved. Ready to approve for review.';
                 $('approve-review').disabled = false;
                 $('queue-alignment').style.display = 'none';
             } else {
-                $('approve-status').textContent = 'Save assessment before approving.';
+                statusMsg = 'Save assessment before approving.';
                 $('approve-review').disabled = true;
                 $('queue-alignment').style.display = 'none';
             }
+
+            // Update heading with badge
+            approveCard.querySelector('h2').innerHTML = 'Review &amp; Approve ' + badgeHtml;
+            $('approve-status').innerHTML = statusMsg;
         }
 
         // --- Actions ---
@@ -1233,13 +1395,8 @@
             })
             .then(r => r.json())
             .then(() => {
-                // Refresh saved data
-                return fetch('/api/saved').then(r => r.json());
-            })
-            .then(saved => {
-                savedData = saved;
-                updateProgress();
-                renderApproval();
+                // Refresh saved data and pipeline status
+                refreshPipelineStatus().then(() => renderApproval());
                 $('save-changes').textContent = 'Saved!';
                 setTimeout(() => { $('save-changes').textContent = 'Save Assessment'; }, 1500);
             });
@@ -1254,12 +1411,7 @@
             })
             .then(r => r.json())
             .then(() => {
-                return fetch('/api/saved').then(r => r.json());
-            })
-            .then(saved => {
-                savedData = saved;
-                updateProgress();
-                renderApproval();
+                refreshPipelineStatus().then(() => renderApproval());
             });
         });
 
