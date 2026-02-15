@@ -186,8 +186,8 @@ def check_orientation(sample_peaks, sample_proj_1d, template_key, template_info)
     if template_key.startswith('JRC2018U'):
         y_proj = sample_proj_1d[1]['filtered']
         center_idx = len(y_proj) // 2
-        front_half = np.sum(y_proj[:center_idx])
-        back_half = np.sum(y_proj[center_idx:])
+        front_half = np.int64(np.sum(y_proj[:center_idx]))
+        back_half = np.int64(np.sum(y_proj[center_idx:]))
         total = front_half + back_half
         if total > 0:
             asymmetry = (front_half - back_half) / total
@@ -197,8 +197,8 @@ def check_orientation(sample_peaks, sample_proj_1d, template_key, template_info)
     if template_key.startswith('JRC2018U'):
         x_proj = sample_proj_1d[0]['filtered']
         center_idx = len(x_proj) // 2
-        left_half = np.sum(x_proj[:center_idx])
-        right_half = np.sum(x_proj[center_idx:])
+        left_half = np.int64(np.sum(x_proj[:center_idx]))
+        right_half = np.int64(np.sum(x_proj[center_idx:]))
         total = left_half + right_half
         if total > 0:
             x_asymmetry = abs(left_half - right_half) / total
