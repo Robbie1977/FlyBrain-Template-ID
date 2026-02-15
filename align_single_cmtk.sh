@@ -140,18 +140,20 @@ if [ $START_STAGE -le 0 ]; then
     update_progress stage_start set_lps
     echo "  Setting space to left-posterior-superior for input files..."
     source venv/bin/activate && python3 -c "
-import nrrd
+import sys, nrrd
 
-data, header = nrrd.read('$signal_file')
-header['space'] = 'left-posterior-superior'
-nrrd.write('$signal_file', data, header)
+sig, bg = sys.argv[1], sys.argv[2]
 
-data, header = nrrd.read('$bg_file')
+data, header = nrrd.read(sig)
 header['space'] = 'left-posterior-superior'
-nrrd.write('$bg_file', data, header)
+nrrd.write(sig, data, header)
+
+data, header = nrrd.read(bg)
+header['space'] = 'left-posterior-superior'
+nrrd.write(bg, data, header)
 
 print('Space set to LPS for input files')
-"
+" "$signal_file" "$bg_file"
     update_progress stage_end set_lps
 fi
 
@@ -245,32 +247,35 @@ if [ $START_STAGE -le 6 ]; then
     update_progress stage_start thumbnails
     echo "  Generating alignment thumbnails..."
     source venv/bin/activate && python3 -c "
-import json
-import base64
-import io
+import sys, json, base64, io
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import nrrd
 import numpy as np
+
+template_path = sys.argv[1]
+output_bg_path = sys.argv[2]
+image_base = sys.argv[3]
+template_name = sys.argv[4]
+ts = sys.argv[5]
+output_json = sys.argv[6]
 
 def generate_thumbnail(data, title='', figsize=(4,4)):
     fig, ax = plt.subplots(figsize=figsize, dpi=100)
     ax.imshow(data, cmap='gray', aspect='auto')
     ax.set_title(title)
     ax.axis('off')
-    
+
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
-# Load template
-template_data, _ = nrrd.read('$template')
+template_data, _ = nrrd.read(template_path)
+aligned_bg_data, _ = nrrd.read(output_bg_path)
 
-# Load aligned background
-aligned_bg_data, _ = nrrd.read('$output_bg_file')
-
-# Generate projections
 axes = [0, 1, 2]
 template_projs = [np.max(template_data, axis=ax) for ax in axes]
 aligned_projs = [np.max(aligned_bg_data, axis=ax) for ax in axes]
@@ -283,17 +288,17 @@ for i, axis in enumerate(['x', 'y', 'z']):
     thumbnails[f'{axis}_aligned'] = aligned_thumb
 
 result = {
-    'image_base': '$IMAGE_BASE',
-    'template': '$template',
+    'image_base': image_base,
+    'template': template_name,
     'thumbnails': thumbnails,
-    'aligned_at': '$timestamp'
+    'aligned_at': ts
 }
 
-with open('corrected/${base}_alignment_thumbnails.json', 'w') as f:
+with open(output_json, 'w') as f:
     json.dump(result, f, indent=2)
 
 print('Thumbnails generated')
-"
+" "$template" "$output_bg_file" "$IMAGE_BASE" "$template" "$timestamp" "corrected/${base}_alignment_thumbnails.json"
     update_progress stage_end thumbnails
 fi
 

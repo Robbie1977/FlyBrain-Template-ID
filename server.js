@@ -3,6 +3,13 @@ const { exec, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// Shell-escape: wrap in single quotes, escape embedded single quotes.
+// Single-quoting is the strongest bash quoting — everything inside is literal
+// (no variable expansion, no subshell syntax, no globbing).
+function shellEscape(str) {
+    return "'" + str.replace(/'/g, "'\\''") + "'";
+}
+
 const app = express();
 const PORT = 3000;
 const ORIENTATIONS_FILE = path.join(__dirname, 'orientations.json');
@@ -448,7 +455,7 @@ app.get('/api/image', (req, res) => {
     if (!imageName) {
         return res.status(400).json({ error: 'Missing image name' });
     }
-    exec(`source venv/bin/activate && python get_image_data.py "${imageName}" ${bgChannel}`, { maxBuffer: 50 * 1024 * 1024, timeout: 120000 }, (error, stdout, stderr) => {
+    exec(`source venv/bin/activate && python get_image_data.py ${shellEscape(imageName)} ${bgChannel}`, { maxBuffer: 50 * 1024 * 1024, timeout: 120000 }, (error, stdout, stderr) => {
         if (error) {
             console.error(`Error: ${error}`);
             console.error(`stderr: ${stderr}`);
@@ -472,7 +479,7 @@ app.post('/api/rotate', (req, res) => {
         return res.status(400).json({ error: 'Missing image name or rotations' });
     }
     const rotStr = JSON.stringify(rotations);
-    exec(`source venv/bin/activate && python apply_rotation.py "${imageName}" '${rotStr}'`, { timeout: 120000 }, (error, stdout, stderr) => {
+    exec(`source venv/bin/activate && python apply_rotation.py ${shellEscape(imageName)} ${shellEscape(rotStr)}`, { timeout: 120000 }, (error, stdout, stderr) => {
         if (error) {
             console.error(`Error: ${error}`);
             return res.status(500).json({ error: 'Failed to apply rotation' });
@@ -494,7 +501,7 @@ app.post('/api/reset', (req, res) => {
     if (!imageName) {
         return res.status(400).json({ error: 'Missing image name' });
     }
-    exec(`source venv/bin/activate && python reset_rotation.py "${imageName}"`, { timeout: 60000 }, (error, stdout, stderr) => {
+    exec(`source venv/bin/activate && python reset_rotation.py ${shellEscape(imageName)}`, { timeout: 60000 }, (error, stdout, stderr) => {
         if (error) {
             console.error(`Error: ${error}`);
             return res.status(500).json({ error: 'Failed to reset rotation' });
@@ -611,7 +618,7 @@ function prepareAndQueue(imageBase, needsNrrd) {
         }
 
         console.log(`Channel files missing for ${imageBase}, creating them...`);
-        const splitProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 split_channels.py ' + imageBase], { cwd: __dirname });
+        const splitProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 split_channels.py ' + shellEscape(imageBase)], { cwd: __dirname });
 
         splitProcess.on('close', (code) => {
             preparingImages.delete(imageBase);
@@ -634,7 +641,7 @@ function prepareAndQueue(imageBase, needsNrrd) {
 
     if (needsNrrd) {
         console.log(`NRRD file missing for ${imageBase}, converting from TIFF...`);
-        const convertProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + imageBase], { cwd: __dirname });
+        const convertProcess = spawn('bash', ['-c', 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + shellEscape(imageBase)], { cwd: __dirname });
 
         convertProcess.on('close', (code) => {
             if (code !== 0) {
