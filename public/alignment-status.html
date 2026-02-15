@@ -131,7 +131,8 @@
     <div class="header">
         <h1>CMTK Alignment Status</h1>
         <div class="nav">
-            <button onclick="window.location.href='/'">← Back to Review</button>
+            <button onclick="window.location.href='/'">&#8592; Image Review</button>
+            <button onclick="window.location.href='/alignment-review.html'">Alignment Review</button>
             <button onclick="queueAllApproved()">Queue All Approved</button>
             <button class="refresh-btn" onclick="loadStatus()">Refresh</button>
         </div>
@@ -353,7 +354,10 @@
                         <div class="job-info" style="width:100%">
                             <div style="display:flex; align-items:center; justify-content:space-between">
                                 <div class="job-name">${job.image_base}</div>
-                                <div>&#9989; Success</div>
+                                <div>
+                                    &#9989; Success
+                                    <button class="retry-btn" style="background:#3498db;" onclick="window.open('/alignment-review.html#${encodeURIComponent(job.image_base)}', '_blank')">Review</button>
+                                </div>
                             </div>
                             <div class="job-status">Completed ${formatTime(job.completed_at)}</div>
                             ${totalTime ? `<div class="total-time">Total: ${totalTime}</div>` : ''}

@@ -798,6 +798,131 @@ app.post('/api/reset-alignment', (req, res) => {
     res.json({ success: true, message: `Alignment status reset for ${imageBase}` });
 });
 
+// Regenerate thumbnails for a completed alignment (adds overlay + signal thumbs)
+app.post('/api/regenerate-thumbnails', (req, res) => {
+    const imageBase = req.body.image_base;
+    if (!imageBase) {
+        return res.status(400).json({ error: 'Missing image_base' });
+    }
+
+    console.log(`[/api/regenerate-thumbnails] Regenerating for: ${imageBase}`);
+
+    // Determine template and file paths
+    const isVNC = imageBase.includes('VNC');
+    const template = isVNC ? 'JRCVNC2018U_template_lps.nrrd' : 'JRC2018U_template_lps.nrrd';
+    const outputBgFile = path.join(__dirname, 'corrected', `${imageBase}_background_aligned.nrrd`);
+    const outputSignalFile = path.join(__dirname, 'corrected', `${imageBase}_signal_aligned.nrrd`);
+    const outputJson = path.join(__dirname, 'corrected', `${imageBase}_alignment_thumbnails.json`);
+
+    if (!fs.existsSync(outputBgFile)) {
+        return res.status(400).json({ error: 'Aligned background file not found — alignment may not be complete' });
+    }
+
+    const timestamp = new Date().toISOString();
+    const signalArg = fs.existsSync(outputSignalFile) ? shellEscape(outputSignalFile) : "''";
+
+    const cmd = `source venv/bin/activate && python3 -c "
+import sys, json, base64, io
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import nrrd
+import numpy as np
+
+template_path = sys.argv[1]
+output_bg_path = sys.argv[2]
+image_base = sys.argv[3]
+template_name = sys.argv[4]
+ts = sys.argv[5]
+output_json = sys.argv[6]
+output_signal_path = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else None
+
+def to_png_base64(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode('utf-8')
+
+def generate_thumbnail(data, title='', figsize=(4,4)):
+    fig, ax = plt.subplots(figsize=figsize, dpi=100)
+    ax.imshow(data, cmap='gray', aspect='auto')
+    ax.set_title(title)
+    ax.axis('off')
+    return to_png_base64(fig)
+
+def normalise(arr):
+    mn, mx = arr.min(), arr.max()
+    if mx == mn:
+        return np.zeros_like(arr, dtype=np.float32)
+    return (arr - mn).astype(np.float32) / (mx - mn)
+
+def generate_overlay(template_proj, aligned_proj, title='', figsize=(4,4)):
+    t = normalise(template_proj)
+    a = normalise(aligned_proj)
+    h, w = t.shape[:2]
+    if a.shape != t.shape:
+        from scipy.ndimage import zoom
+        zoom_factors = (h / a.shape[0], w / a.shape[1])
+        a = zoom(a, zoom_factors, order=1)
+    rgb = np.zeros((h, w, 3), dtype=np.float32)
+    rgb[..., 0] = t
+    rgb[..., 1] = a
+    rgb[..., 2] = t
+    fig, ax = plt.subplots(figsize=figsize, dpi=100)
+    ax.imshow(np.clip(rgb, 0, 1), aspect='auto')
+    ax.set_title(title)
+    ax.axis('off')
+    return to_png_base64(fig)
+
+template_data, _ = nrrd.read(template_path)
+aligned_bg_data, _ = nrrd.read(output_bg_path)
+
+axes = [0, 1, 2]
+template_projs = [np.max(template_data, axis=ax) for ax in axes]
+aligned_projs  = [np.max(aligned_bg_data, axis=ax) for ax in axes]
+
+thumbnails = {}
+for i, axis in enumerate(['x', 'y', 'z']):
+    thumbnails[f'{axis}_template'] = generate_thumbnail(template_projs[i], f'Template {axis.upper()}-axis')
+    thumbnails[f'{axis}_aligned']  = generate_thumbnail(aligned_projs[i],  f'Aligned {axis.upper()}-axis')
+    thumbnails[f'{axis}_overlay']  = generate_overlay(template_projs[i], aligned_projs[i], f'Overlay {axis.upper()}-axis')
+
+if output_signal_path:
+    try:
+        signal_data, _ = nrrd.read(output_signal_path)
+        signal_projs = [np.max(signal_data, axis=ax) for ax in axes]
+        for i, axis in enumerate(['x', 'y', 'z']):
+            thumbnails[f'{axis}_signal'] = generate_thumbnail(signal_projs[i], f'Signal {axis.upper()}-axis')
+        print('Signal thumbnails included')
+    except Exception as e:
+        print(f'Warning: could not load signal file: {e}')
+
+result = {
+    'image_base': image_base,
+    'template': template_name,
+    'thumbnails': thumbnails,
+    'aligned_at': ts
+}
+
+with open(output_json, 'w') as f:
+    json.dump(result, f, indent=2)
+
+print('Thumbnails regenerated successfully')
+" ${shellEscape(template)} ${shellEscape(outputBgFile)} ${shellEscape(imageBase)} ${shellEscape(template)} ${shellEscape(timestamp)} ${shellEscape(outputJson)} ${signalArg}`;
+
+    exec(cmd, { shell: '/bin/bash', timeout: 300000, maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+        if (stdout) console.log(`[regenerate-thumbnails] ${stdout.trim()}`);
+        if (stderr) console.log(`[regenerate-thumbnails stderr] ${stderr.trim()}`);
+        if (error) {
+            console.error(`[regenerate-thumbnails] Error: ${error.message}`);
+            return res.status(500).json({ error: 'Failed to regenerate thumbnails', detail: stderr || error.message });
+        }
+        console.log(`[regenerate-thumbnails] Success for ${imageBase}`);
+        res.json({ success: true, message: 'Thumbnails regenerated with overlay and signal views' });
+    });
+});
+
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
     // Load persisted state, then detect any running alignment processes

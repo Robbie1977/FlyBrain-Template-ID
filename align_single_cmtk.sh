@@ -260,32 +260,72 @@ image_base = sys.argv[3]
 template_name = sys.argv[4]
 ts = sys.argv[5]
 output_json = sys.argv[6]
+output_signal_path = sys.argv[7] if len(sys.argv) > 7 else None
 
-def generate_thumbnail(data, title='', figsize=(4,4)):
-    fig, ax = plt.subplots(figsize=figsize, dpi=100)
-    ax.imshow(data, cmap='gray', aspect='auto')
-    ax.set_title(title)
-    ax.axis('off')
-
+def to_png_base64(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
+def generate_thumbnail(data, title='', figsize=(4,4)):
+    fig, ax = plt.subplots(figsize=figsize, dpi=100)
+    ax.imshow(data, cmap='gray', aspect='auto')
+    ax.set_title(title)
+    ax.axis('off')
+    return to_png_base64(fig)
+
+def normalise(arr):
+    mn, mx = arr.min(), arr.max()
+    if mx == mn:
+        return np.zeros_like(arr, dtype=np.float32)
+    return (arr - mn).astype(np.float32) / (mx - mn)
+
+def generate_overlay(template_proj, aligned_proj, title='', figsize=(4,4)):
+    # Magenta = template, Green = aligned (standard neuroscience overlay)
+    t = normalise(template_proj)
+    a = normalise(aligned_proj)
+    h, w = t.shape[:2]
+    # Resize aligned to match template if needed
+    if a.shape != t.shape:
+        from scipy.ndimage import zoom
+        zoom_factors = (h / a.shape[0], w / a.shape[1])
+        a = zoom(a, zoom_factors, order=1)
+    rgb = np.zeros((h, w, 3), dtype=np.float32)
+    rgb[..., 0] = t          # Red   ← template (magenta = R+B)
+    rgb[..., 1] = a          # Green ← aligned
+    rgb[..., 2] = t          # Blue  ← template (magenta = R+B)
+    fig, ax = plt.subplots(figsize=figsize, dpi=100)
+    ax.imshow(np.clip(rgb, 0, 1), aspect='auto')
+    ax.set_title(title)
+    ax.axis('off')
+    return to_png_base64(fig)
+
+# Load data
 template_data, _ = nrrd.read(template_path)
 aligned_bg_data, _ = nrrd.read(output_bg_path)
 
 axes = [0, 1, 2]
 template_projs = [np.max(template_data, axis=ax) for ax in axes]
-aligned_projs = [np.max(aligned_bg_data, axis=ax) for ax in axes]
+aligned_projs  = [np.max(aligned_bg_data, axis=ax) for ax in axes]
 
 thumbnails = {}
 for i, axis in enumerate(['x', 'y', 'z']):
-    template_thumb = generate_thumbnail(template_projs[i], f'Template {axis.upper()}-axis')
-    aligned_thumb = generate_thumbnail(aligned_projs[i], f'Aligned {axis.upper()}-axis')
-    thumbnails[f'{axis}_template'] = template_thumb
-    thumbnails[f'{axis}_aligned'] = aligned_thumb
+    thumbnails[f'{axis}_template'] = generate_thumbnail(template_projs[i], f'Template {axis.upper()}-axis')
+    thumbnails[f'{axis}_aligned']  = generate_thumbnail(aligned_projs[i],  f'Aligned {axis.upper()}-axis')
+    thumbnails[f'{axis}_overlay']  = generate_overlay(template_projs[i], aligned_projs[i], f'Overlay {axis.upper()}-axis')
+
+# Also generate signal channel thumbnails if available
+if output_signal_path:
+    try:
+        signal_data, _ = nrrd.read(output_signal_path)
+        signal_projs = [np.max(signal_data, axis=ax) for ax in axes]
+        for i, axis in enumerate(['x', 'y', 'z']):
+            thumbnails[f'{axis}_signal'] = generate_thumbnail(signal_projs[i], f'Signal {axis.upper()}-axis')
+        print('Signal thumbnails included')
+    except Exception as e:
+        print(f'Warning: could not load signal file: {e}')
 
 result = {
     'image_base': image_base,
@@ -298,7 +338,7 @@ with open(output_json, 'w') as f:
     json.dump(result, f, indent=2)
 
 print('Thumbnails generated')
-" "$template" "$output_bg_file" "$IMAGE_BASE" "$template" "$timestamp" "corrected/${base}_alignment_thumbnails.json"
+" "$template" "$output_bg_file" "$IMAGE_BASE" "$template" "$timestamp" "corrected/${base}_alignment_thumbnails.json" "$output_signal_file"
     update_progress stage_end thumbnails
 fi
 
