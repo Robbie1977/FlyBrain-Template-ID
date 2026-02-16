@@ -560,7 +560,7 @@ app.get('/api/image', (req, res) => {
     const cmd = `source venv/bin/activate && python get_image_data.py ${shellEscape(imageName)} ${bgChannel}`;
     console.log(`[/api/image] Request for: ${imageName} (bg_channel=${bgChannel})`);
     console.log(`[/api/image] Executing: ${cmd}`);
-    exec(cmd, { shell: '/bin/bash', maxBuffer: 50 * 1024 * 1024, timeout: 120000 }, (error, stdout, stderr) => {
+    exec(cmd, { shell: '/bin/bash', maxBuffer: 50 * 1024 * 1024, timeout: 600000 }, (error, stdout, stderr) => {
         if (stderr) {
             console.log(`[/api/image] stderr: ${stderr}`);
         }
@@ -572,7 +572,7 @@ app.get('/api/image', (req, res) => {
         }
         try {
             const data = JSON.parse(stdout);
-            console.log(`[/api/image] Success for ${imageName} — shape: ${JSON.stringify(data.image_info?.shape)}, template: ${data.automated_analysis?.detected_template}`);
+            console.log(`[/api/image] Success for ${imageName} — shape: ${JSON.stringify(data.sample_info?.shape)}, template: ${data.template}`);
             res.json(data);
         } catch (e) {
             console.error(`[/api/image] JSON parse error: ${e}`);
@@ -602,7 +602,7 @@ app.post('/api/rotate', (req, res) => {
     const doRotation = () => {
         const cmd = `source venv/bin/activate && python apply_rotation.py ${shellEscape(imageBase)} ${shellEscape(rotStr)}`;
         console.log(`[/api/rotate] Executing: ${cmd}`);
-        exec(cmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
+        exec(cmd, { shell: '/bin/bash', timeout: 600000 }, (error, stdout, stderr) => {
             if (stdout) console.log(`[/api/rotate] stdout: ${stdout}`);
             if (stderr) console.log(`[/api/rotate] stderr: ${stderr}`);
             if (error) {
@@ -625,7 +625,7 @@ app.post('/api/rotate', (req, res) => {
     if (needsConvert) {
         console.log(`[/api/rotate] NRRDs not found, converting TIFF first...`);
         const convertCmd = `source venv/bin/activate && python3 convert_tiff_to_nrrd.py ${shellEscape(imageBase)}`;
-        exec(convertCmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
+        exec(convertCmd, { shell: '/bin/bash', timeout: 600000 }, (error, stdout, stderr) => {
             if (stdout) console.log(`[/api/rotate convert] stdout: ${stdout}`);
             if (stderr) console.log(`[/api/rotate convert] stderr: ${stderr}`);
             if (error) {
@@ -649,7 +649,7 @@ app.post('/api/reset', (req, res) => {
     const cmd = `source venv/bin/activate && python reset_rotation.py ${shellEscape(imageBase)}`;
     console.log(`[/api/reset] Request for: ${imageName} (base=${imageBase})`);
     console.log(`[/api/reset] Executing: ${cmd}`);
-    exec(cmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
+    exec(cmd, { shell: '/bin/bash', timeout: 600000 }, (error, stdout, stderr) => {
         if (stdout) console.log(`[/api/reset] stdout: ${stdout}`);
         if (stderr) console.log(`[/api/reset] stderr: ${stderr}`);
         if (error) {

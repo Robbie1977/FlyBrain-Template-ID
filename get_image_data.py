@@ -350,10 +350,12 @@ def main():
         sig_data_raw, _ = nrrd.read(str(signal_nrrd))
 
         # NRRD data is [X, Y, Z] — extract voxel sizes from space directions
+        # Use norm of each row (not just diagonal) because 90° rotations
+        # swap entire rows, creating off-diagonal entries
         sd = np.array(bg_header['space directions'], dtype=float)
-        vx = abs(sd[0][0])  # X spacing
-        vy = abs(sd[1][1])  # Y spacing
-        vz = abs(sd[2][2])  # Z spacing
+        vx = float(np.linalg.norm(sd[0]))  # X spacing
+        vy = float(np.linalg.norm(sd[1]))  # Y spacing
+        vz = float(np.linalg.norm(sd[2]))  # Z spacing
         sample_vox = [vx, vy, vz]  # [X, Y, Z] matching data axes
 
         sig_data = sig_data_raw

@@ -17,6 +17,8 @@ Usage:
 
 import sys
 import json
+import os
+import tempfile
 import numpy as np
 import nrrd
 from pathlib import Path
@@ -75,7 +77,18 @@ def rotate_nrrd(nrrd_path, rotations):
     header['space directions'] = sd.tolist()
     header['sizes'] = list(data.shape)
 
-    nrrd.write(str(nrrd_path), data, header)
+    # Atomic write: write to temp file then rename, so a killed process
+    # cannot leave a half-written (corrupted) NRRD file
+    fd, tmp_path = tempfile.mkstemp(suffix='.nrrd', dir=str(nrrd_path.parent))
+    os.close(fd)
+    try:
+        nrrd.write(tmp_path, data, header)
+        os.replace(tmp_path, str(nrrd_path))
+    except Exception:
+        # Clean up temp file on failure
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     return data.shape, sd.tolist()
 
 
@@ -112,10 +125,6 @@ def main():
     print(f"  Background: shape={shape}  space_dirs={sd}")
 
     print("Rotation applied successfully")
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
