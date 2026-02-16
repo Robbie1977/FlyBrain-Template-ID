@@ -40,7 +40,6 @@ const ALIGNMENT_STATE_FILE = path.join(__dirname, 'alignment_progress.json');
 
 const STAGE_PROGRESS = {
     'initializing': 0,
-    'set_lps': 2,
     'initial_affine': 5,
     'affine_registration': 10,
     'warp': 40,
@@ -52,7 +51,6 @@ const STAGE_PROGRESS = {
 
 const STAGE_LABELS = {
     'initializing': 'Initializing',
-    'set_lps': 'Setting LPS orientation',
     'initial_affine': 'Initial affine transform',
     'affine_registration': 'Affine registration',
     'warp': 'Non-linear warping',
@@ -590,29 +588,55 @@ app.post('/api/rotate', (req, res) => {
     if (!imageName || !rotations) {
         return res.status(400).json({ error: 'Missing image name or rotations' });
     }
+
+    const imageBase = imageName.split('/').pop();
     const rotStr = JSON.stringify(rotations);
-    const cmd = `source venv/bin/activate && python apply_rotation.py ${shellEscape(imageName)} ${shellEscape(rotStr)}`;
+    const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
+    const bgFile = path.join(__dirname, 'channels', `${imageBase}_background.nrrd`);
+
     console.log(`[/api/rotate] Request for: ${imageName} rotations=${rotStr}`);
-    console.log(`[/api/rotate] Executing: ${cmd}`);
-    exec(cmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
-        if (stdout) console.log(`[/api/rotate] stdout: ${stdout}`);
-        if (stderr) console.log(`[/api/rotate] stderr: ${stderr}`);
-        if (error) {
-            console.error(`[/api/rotate] Error: ${error.message}`);
-            console.error(`[/api/rotate] Exit code: ${error.code}`);
-            return res.status(500).json({ error: 'Failed to apply rotation', detail: stderr || error.message });
-        }
 
-        // Reset saved rotations to 0 since the image file has been rotated
-        const saved = readOrientations();
-        if (saved[imageName] && saved[imageName].manual_corrections) {
-            saved[imageName].manual_corrections.rotations = { x: 0, y: 0, z: 0 };
-            writeOrientations(saved);
-        }
+    // If NRRDs don't exist yet, create them first from the original TIFF
+    const needsConvert = !fs.existsSync(signalFile) || !fs.existsSync(bgFile);
 
-        console.log(`[/api/rotate] Success for ${imageName}`);
-        res.json({ success: true });
-    });
+    const doRotation = () => {
+        const cmd = `source venv/bin/activate && python apply_rotation.py ${shellEscape(imageBase)} ${shellEscape(rotStr)}`;
+        console.log(`[/api/rotate] Executing: ${cmd}`);
+        exec(cmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
+            if (stdout) console.log(`[/api/rotate] stdout: ${stdout}`);
+            if (stderr) console.log(`[/api/rotate] stderr: ${stderr}`);
+            if (error) {
+                console.error(`[/api/rotate] Error: ${error.message}`);
+                return res.status(500).json({ error: 'Failed to apply rotation', detail: stderr || error.message });
+            }
+
+            // Reset saved rotations to 0 since the NRRD files have been rotated
+            const saved = readOrientations();
+            if (saved[imageName] && saved[imageName].manual_corrections) {
+                saved[imageName].manual_corrections.rotations = { x: 0, y: 0, z: 0 };
+                writeOrientations(saved);
+            }
+
+            console.log(`[/api/rotate] Success for ${imageName}`);
+            res.json({ success: true });
+        });
+    };
+
+    if (needsConvert) {
+        console.log(`[/api/rotate] NRRDs not found, converting TIFF first...`);
+        const convertCmd = `source venv/bin/activate && python3 convert_tiff_to_nrrd.py ${shellEscape(imageBase)}`;
+        exec(convertCmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
+            if (stdout) console.log(`[/api/rotate convert] stdout: ${stdout}`);
+            if (stderr) console.log(`[/api/rotate convert] stderr: ${stderr}`);
+            if (error) {
+                console.error(`[/api/rotate] Convert failed: ${error.message}`);
+                return res.status(500).json({ error: 'Failed to create NRRDs before rotation', detail: stderr || error.message });
+            }
+            doRotation();
+        });
+    } else {
+        doRotation();
+    }
 });
 
 app.post('/api/reset', (req, res) => {
@@ -620,10 +644,12 @@ app.post('/api/reset', (req, res) => {
     if (!imageName) {
         return res.status(400).json({ error: 'Missing image name' });
     }
-    const cmd = `source venv/bin/activate && python reset_rotation.py ${shellEscape(imageName)}`;
-    console.log(`[/api/reset] Request for: ${imageName}`);
+    // reset_rotation.py now re-generates NRRDs from the original (unmodified) TIFF
+    const imageBase = imageName.split('/').pop();
+    const cmd = `source venv/bin/activate && python reset_rotation.py ${shellEscape(imageBase)}`;
+    console.log(`[/api/reset] Request for: ${imageName} (base=${imageBase})`);
     console.log(`[/api/reset] Executing: ${cmd}`);
-    exec(cmd, { shell: '/bin/bash', timeout: 60000 }, (error, stdout, stderr) => {
+    exec(cmd, { shell: '/bin/bash', timeout: 120000 }, (error, stdout, stderr) => {
         if (stdout) console.log(`[/api/reset] stdout: ${stdout}`);
         if (stderr) console.log(`[/api/reset] stderr: ${stderr}`);
         if (error) {
@@ -738,110 +764,69 @@ app.post('/api/queue-alignment', (req, res) => {
         return res.status(400).json({ error: 'Image must be approved before queuing for alignment' });
     }
 
-    // Check if NRRD file exists
-    const nrrdFile = path.join(__dirname, 'nrrd_output', `${imageBase}.nrrd`);
+    // Check if channel NRRDs exist (the only prerequisite now)
     const tiffFile = path.join(__dirname, 'Images', imageKey + '.tif');
     const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
     const backgroundFile = path.join(__dirname, 'channels', `${imageBase}_background.nrrd`);
 
-    const needsNrrd = !fs.existsSync(nrrdFile);
     const needsChannels = !fs.existsSync(signalFile) || !fs.existsSync(backgroundFile);
-    console.log(`[/api/queue-alignment] Prerequisites: nrrd=${nrrdFile} exists=${!needsNrrd}, signal=${signalFile} exists=${fs.existsSync(signalFile)}, bg=${backgroundFile} exists=${fs.existsSync(backgroundFile)}`);
+    console.log(`[/api/queue-alignment] Prerequisites: signal=${signalFile} exists=${fs.existsSync(signalFile)}, bg=${backgroundFile} exists=${fs.existsSync(backgroundFile)}`);
 
-    // If all prerequisites exist, queue immediately
-    if (!needsNrrd && !needsChannels) {
-        console.log(`[/api/queue-alignment] All prerequisites exist, queuing immediately: ${imageBase}`);
+    // If channel NRRDs already exist, queue immediately
+    if (!needsChannels) {
+        console.log(`[/api/queue-alignment] Channel NRRDs exist, queuing immediately: ${imageBase}`);
         queueAlignment(imageBase);
         return res.json({ success: true, message: 'Image queued for CMTK alignment' });
     }
 
-    // Prerequisites need to be created - respond immediately and prepare in background
-    if (needsNrrd && !fs.existsSync(tiffFile)) {
-        console.error(`[/api/queue-alignment] Source TIFF not found: ${tiffFile}`);
-        return res.status(400).json({ error: 'Source TIFF file not found' });
+    // Channel NRRDs need to be created from TIFF
+    if (!fs.existsSync(tiffFile)) {
+        // Try .tiff extension
+        const tiffFile2 = tiffFile + 'f';
+        if (!fs.existsSync(tiffFile2)) {
+            console.error(`[/api/queue-alignment] Source TIFF not found: ${tiffFile}`);
+            return res.status(400).json({ error: 'Source TIFF file not found' });
+        }
     }
 
-    console.log(`[/api/queue-alignment] Starting preparation for ${imageBase} (needsNrrd=${needsNrrd}, needsChannels=${needsChannels})`);
+    console.log(`[/api/queue-alignment] Starting preparation for ${imageBase} (needsChannels=${needsChannels})`);
     preparingImages.add(imageBase);
     alignmentStatus[imageBase] = { status: 'preparing', progress: 0, error: '', queued_at: new Date().toISOString() };
     writeAlignmentState();
     res.json({ success: true, message: 'Image preparation started - will be queued automatically when ready' });
 
-    // Run preparation in the background
-    prepareAndQueue(imageBase, needsNrrd);
+    // Run preparation in the background — single convert_tiff_to_nrrd.py call
+    prepareAndQueue(imageBase);
 });
 
-function prepareAndQueue(imageBase, needsNrrd) {
+function prepareAndQueue(imageBase) {
+    // Single step: convert_tiff_to_nrrd.py creates channel NRRDs directly
+    const convertCmd = 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + shellEscape(imageBase);
+    console.log(`[prepareAndQueue] Creating channel NRRDs for ${imageBase}...`);
+    console.log(`[prepareAndQueue] Executing: ${convertCmd}`);
+    const convertProcess = spawn('bash', ['-c', convertCmd], { cwd: __dirname });
 
-    function createChannelsThenQueue() {
-        const signalFile = path.join(__dirname, 'channels', `${imageBase}_signal.nrrd`);
-        const backgroundFile = path.join(__dirname, 'channels', `${imageBase}_background.nrrd`);
+    convertProcess.stdout.on('data', (data) => console.log(`[convert_tiff ${imageBase}] ${data.toString().trim()}`));
+    convertProcess.stderr.on('data', (data) => console.error(`[convert_tiff ${imageBase} ERR] ${data.toString().trim()}`));
 
-        if (fs.existsSync(signalFile) && fs.existsSync(backgroundFile)) {
-            preparingImages.delete(imageBase);
-            queueAlignment(imageBase);
+    convertProcess.on('close', (code) => {
+        console.log(`[convert_tiff ${imageBase}] Exited with code ${code}`);
+        preparingImages.delete(imageBase);
+        if (code !== 0) {
+            console.error(`[prepareAndQueue] Failed to create channel NRRDs for ${imageBase} (exit code ${code})`);
+            alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel NRRDs from TIFF', completed_at: new Date().toISOString() };
+            writeAlignmentState();
             return;
         }
+        queueAlignment(imageBase);
+    });
 
-        const splitCmd = 'source venv/bin/activate && python3 split_channels.py ' + shellEscape(imageBase);
-        console.log(`[prepareAndQueue] Channel files missing for ${imageBase}, creating them...`);
-        console.log(`[prepareAndQueue] Executing: ${splitCmd}`);
-        const splitProcess = spawn('bash', ['-c', splitCmd], { cwd: __dirname });
-
-        splitProcess.stdout.on('data', (data) => console.log(`[split_channels ${imageBase}] ${data.toString().trim()}`));
-        splitProcess.stderr.on('data', (data) => console.error(`[split_channels ${imageBase} ERR] ${data.toString().trim()}`));
-
-        splitProcess.on('close', (code) => {
-            console.log(`[split_channels ${imageBase}] Exited with code ${code}`);
-            preparingImages.delete(imageBase);
-            if (code !== 0) {
-                console.error(`[prepareAndQueue] Failed to create channel files for ${imageBase} (exit code ${code})`);
-                alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
-                writeAlignmentState();
-                return;
-            }
-            queueAlignment(imageBase);
-        });
-
-        splitProcess.on('error', (err) => {
-            preparingImages.delete(imageBase);
-            console.error(`[prepareAndQueue] Error running split_channels.py for ${imageBase}: ${err}`);
-            alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel files', completed_at: new Date().toISOString() };
-            writeAlignmentState();
-        });
-    }
-
-    if (needsNrrd) {
-        const convertCmd = 'source venv/bin/activate && python3 convert_tiff_to_nrrd.py ' + shellEscape(imageBase);
-        console.log(`[prepareAndQueue] NRRD file missing for ${imageBase}, converting from TIFF...`);
-        console.log(`[prepareAndQueue] Executing: ${convertCmd}`);
-        const convertProcess = spawn('bash', ['-c', convertCmd], { cwd: __dirname });
-
-        convertProcess.stdout.on('data', (data) => console.log(`[convert_tiff ${imageBase}] ${data.toString().trim()}`));
-        convertProcess.stderr.on('data', (data) => console.error(`[convert_tiff ${imageBase} ERR] ${data.toString().trim()}`));
-
-        convertProcess.on('close', (code) => {
-            console.log(`[convert_tiff ${imageBase}] Exited with code ${code}`);
-            if (code !== 0) {
-                preparingImages.delete(imageBase);
-                console.error(`[prepareAndQueue] Failed to convert TIFF to NRRD for ${imageBase} (exit code ${code})`);
-                alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
-                writeAlignmentState();
-                return;
-            }
-            createChannelsThenQueue();
-        });
-
-        convertProcess.on('error', (err) => {
-            preparingImages.delete(imageBase);
-            console.error(`[prepareAndQueue] Error running convert_tiff_to_nrrd.py for ${imageBase}: ${err}`);
-            alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to convert TIFF to NRRD', completed_at: new Date().toISOString() };
-            writeAlignmentState();
-        });
-    } else {
-        console.log(`[prepareAndQueue] NRRD exists, proceeding to channel splitting for ${imageBase}`);
-        createChannelsThenQueue();
-    }
+    convertProcess.on('error', (err) => {
+        preparingImages.delete(imageBase);
+        console.error(`[prepareAndQueue] Error running convert_tiff_to_nrrd.py for ${imageBase}: ${err}`);
+        alignmentStatus[imageBase] = { status: 'failed', progress: 0, error: 'Failed to create channel NRRDs from TIFF', completed_at: new Date().toISOString() };
+        writeAlignmentState();
+    });
 }
 
 function queueAlignment(imageBase) {

@@ -1,184 +1,243 @@
 #!/usr/bin/env python3
 """
-Script to convert TIFF files to NRRD format for use with navis and VFB tools.
-This preserves the image data and metadata.
+Convert TIFF files directly to per-channel NRRD files (signal + background)
+in [X, Y, Z] order with correct space directions and LPS space.
+
+This replaces the old two-step convert + split_channels workflow.
+The original TIFF is NEVER modified.
+
+Output:
+    channels/{base}_signal.nrrd      — signal channel in [X, Y, Z]
+    channels/{base}_background.nrrd  — background channel in [X, Y, Z]
+
+Space directions are set so that:
+    axis 0 (X) → [vx, 0, 0]
+    axis 1 (Y) → [0, vy, 0]
+    axis 2 (Z) → [0, 0, vz]
+
+where vx/vy come from TIFF XResolution/YResolution and vz from ImageJ
+'spacing' metadata.
 """
 
 import os
 import sys
+import json
 import numpy as np
 import tifffile
 from pathlib import Path
 import nrrd
 
-def convert_tiff_to_nrrd(tiff_path, output_dir=None):
-    """Convert a TIFF file to NRRD format."""
-    if output_dir is None:
-        output_dir = tiff_path.parent
+ORIENTATIONS_FILE = Path("orientations.json")
+DEFAULT_VOXEL_SIZE = 0.5  # µm fallback
 
-    output_path = output_dir / (tiff_path.stem + '.nrrd')
 
-    print(f"Converting {tiff_path.name} to {output_path.name}")
+def _extract_voxel_sizes(tif):
+    """Extract [vx, vy, vz] in µm from TIFF metadata.
+
+    Returns pixel sizes in the order [X-spacing, Y-spacing, Z-spacing].
+    """
+    vx = vy = vz = None
 
     try:
-        # Load the TIFF stack
-        stack = tifffile.imread(tiff_path)
-        print(f"  Loaded stack with shape: {stack.shape}")
+        ij = tif.imagej_metadata
+        if ij:
+            if 'spacing' in ij:
+                vz = float(ij['spacing'])
 
-        # Get metadata from first page
-        with tifffile.TiffFile(tiff_path) as tif:
             page = tif.pages[0]
+            tags = page.tags
+            if 'XResolution' in tags:
+                xr = tags['XResolution'].value
+                if isinstance(xr, tuple) and xr[0] > 0:
+                    vx = xr[1] / xr[0]  # µm per pixel
+            if 'YResolution' in tags:
+                yr = tags['YResolution'].value
+                if isinstance(yr, tuple) and yr[0] > 0:
+                    vy = yr[1] / yr[0]
 
-            # Parse ImageJ metadata
-            imagej_meta = page.tags.get('ImageDescription', None)
-            spacing = 1.0
-            unit = 'pixel'
+            unit = ij.get('unit', 'micron')
+            if unit and unit.lower() in ('nm', 'nanometer', 'nanometers'):
+                if vx: vx /= 1000.0
+                if vy: vy /= 1000.0
+                if vz: vz /= 1000.0
+    except Exception:
+        pass
 
-            if imagej_meta and hasattr(imagej_meta, 'value'):
-                meta_value = imagej_meta.value
-                if isinstance(meta_value, bytes):
-                    meta_str = meta_value.decode('utf-8', errors='ignore')
-                else:
-                    meta_str = str(meta_value)
+    # OME fallback
+    if vx is None:
+        try:
+            if hasattr(tif, 'ome_metadata') and tif.ome_metadata:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(tif.ome_metadata)
+                ns = {'ome': root.tag.split('}')[0].strip('{')} if '}' in root.tag else {}
+                pixels = root.find('.//ome:Pixels', ns) if ns else root.find('.//Pixels')
+                if pixels is not None:
+                    if pixels.get('PhysicalSizeX'):
+                        vx = float(pixels.get('PhysicalSizeX'))
+                    if pixels.get('PhysicalSizeY'):
+                        vy = float(pixels.get('PhysicalSizeY'))
+                    if pixels.get('PhysicalSizeZ'):
+                        vz = float(pixels.get('PhysicalSizeZ'))
+        except Exception:
+            pass
 
-                # Parse metadata
-                for line in meta_str.split('\n'):
-                    if '=' in line:
-                        key, value = line.split('=', 1)
-                        if key == 'spacing':
-                            try:
-                                spacing = float(value)
-                            except ValueError:
-                                spacing = 1.0
-                        elif key == 'unit':
-                            unit = value
+    if vx is None: vx = DEFAULT_VOXEL_SIZE
+    if vy is None: vy = vx
+    if vz is None: vz = DEFAULT_VOXEL_SIZE
 
-            # Get XY resolution
-            x_res = page.tags.get('XResolution', None)
-            y_res = page.tags.get('YResolution', None)
+    return [vx, vy, vz]
 
-            if x_res and y_res and unit == 'micron':
-                x_pixels_per_unit = x_res.value[0] / x_res.value[1]
-                y_pixels_per_unit = y_res.value[0] / y_res.value[1]
-                xy_spacing = 1.0 / x_pixels_per_unit  # microns per pixel
-            else:
-                xy_spacing = 1.0
 
-            # Create NRRD header
-            header = {
-                'type': 'uint8',
-                'dimension': len(stack.shape),
-                'sizes': stack.shape[::-1],  # NRRD expects X Y Z order
-                'space directions': [
-                    [xy_spacing, 0, 0],
-                    [0, xy_spacing, 0],
-                    [0, 0, spacing]
-                ],
-                'space units': ['microns', 'microns', 'microns'],
-                'space origin': [0, 0, 0],
-                'endian': 'little',
-                'encoding': 'gzip'
-            }
+def _get_bg_channel(image_base):
+    """Read background channel assignment from orientations.json (default 1)."""
+    if ORIENTATIONS_FILE.exists():
+        try:
+            data = json.loads(ORIENTATIONS_FILE.read_text())
+            for key, val in data.items():
+                if image_base in key:
+                    mc = val.get('manual_corrections', {})
+                    if 'background_channel' in mc:
+                        return int(mc['background_channel'])
+                    return val.get('image_info', {}).get('background_channel', 1)
+        except Exception:
+            pass
+    return 1
 
-            # Handle different stack shapes
-            if len(stack.shape) == 4:  # Z, C, Y, X
-                # For multi-channel, we might need to save channels separately
-                # or combine them. For now, let's save as multi-component
-                data_to_save = np.transpose(stack, (0, 2, 3, 1))  # Z, Y, X, C
-                header['sizes'] = [stack.shape[0], stack.shape[2], stack.shape[3], stack.shape[1]]
-                header['dimension'] = 4
-                print(f"  Multi-channel data: {stack.shape[1]} channels")
 
-            elif len(stack.shape) == 5:  # Z, C, Y, Z, X - weird format
-                # Handle 5D data - likely duplicate Z dimensions, take max projection
-                print(f"  5D data detected, shape: {stack.shape}, taking max projection")
-                # Take max over the duplicate dimensions (axis 1 and 3)
-                projected = np.max(stack, axis=(1, 3))  # Result: (Z, Y, X)
-                data_to_save = np.transpose(projected, (0, 1, 2))  # Z, Y, X
-                header['sizes'] = list(data_to_save.shape[::-1])  # X, Y, Z
-                header['dimension'] = 3
-                print(f"  Projected to 3D: {data_to_save.shape}")
+def _make_nrrd_header(data, vx, vy, vz):
+    """Build a canonical NRRD header for 3D data in [X, Y, Z] with LPS space."""
+    return {
+        'type': str(data.dtype),
+        'dimension': 3,
+        'space': 'left-posterior-superior',
+        'sizes': list(data.shape),
+        'space directions': [
+            [vx, 0, 0],
+            [0, vy, 0],
+            [0, 0, vz],
+        ],
+        'space units': ['microns', 'microns', 'microns'],
+        'space origin': [0.0, 0.0, 0.0],
+        'endian': 'little',
+        'encoding': 'gzip',
+    }
 
-            elif len(stack.shape) == 3:  # Z, Y, X
-                data_to_save = np.transpose(stack, (0, 1, 2))  # Z, Y, X
-                print("  Single channel data")
 
-            else:  # 2D image
-                data_to_save = stack.T  # X, Y
-                header['dimension'] = 2
-                header['sizes'] = stack.shape[::-1]
-                header['space directions'] = [
-                    [xy_spacing, 0],
-                    [0, xy_spacing]
-                ]
-                print("  2D image")
+def convert_and_split(image_base):
+    """Convert a TIFF to per-channel NRRDs in [X, Y, Z] order.
 
-            # Save as NRRD
-            nrrd.write(str(output_path), data_to_save, header)
-            print(f"  Saved to {output_path}")
-            print(f"  NRRD shape: {data_to_save.shape}")
-            print(f"  Voxel size: {xy_spacing:.3f} x {xy_spacing:.3f} x {spacing:.3f} μm")
+    Returns (signal_path, background_path) on success, raises on failure.
+    """
+    channels_dir = Path("channels")
+    channels_dir.mkdir(exist_ok=True)
 
-            return output_path
+    # --- Locate TIFF ---
+    images_dir = Path("Images")
+    tiff_file = None
+    for root, _dirs, files in os.walk(images_dir):
+        for f in files:
+            if f.lower().endswith(('.tif', '.tiff')) and image_base in f:
+                tiff_file = Path(root) / f
+                break
+        if tiff_file:
+            break
 
-    except Exception as e:
-        print(f"  Error converting {tiff_path}: {e}")
-        return None
+    if tiff_file is None or not tiff_file.exists():
+        raise FileNotFoundError(f"TIFF not found for {image_base}")
+
+    print(f"Converting {tiff_file.name} → channel NRRDs")
+
+    # --- Load TIFF ---
+    with tifffile.TiffFile(str(tiff_file)) as tif:
+        stack = tif.asarray(series=0)
+        vx, vy, vz = _extract_voxel_sizes(tif)
+
+    print(f"  TIFF shape: {stack.shape}  voxel: vx={vx:.4f} vy={vy:.4f} vz={vz:.4f} µm")
+
+    bg_channel = _get_bg_channel(image_base)
+
+    # --- Extract channels ---
+    if stack.ndim == 4:
+        # Typical: [Z, C, Y, X]
+        num_channels = stack.shape[1]
+        sig_idx = 1 - bg_channel if num_channels == 2 else 0
+        bg_3d = stack[:, bg_channel, :, :]   # [Z, Y, X]
+        sig_3d = stack[:, sig_idx, :, :]     # [Z, Y, X]
+        print(f"  Multi-channel ({num_channels}): bg={bg_channel} sig={sig_idx}")
+    elif stack.ndim == 3:
+        # Single channel: [Z, Y, X]
+        bg_3d = stack
+        sig_3d = stack
+        print("  Single channel")
+    else:
+        raise ValueError(f"Unexpected TIFF shape: {stack.shape}")
+
+    # --- Transpose from [Z, Y, X] → [X, Y, Z] for NRRD standard ---
+    bg_xyz = np.transpose(bg_3d, (2, 1, 0))    # [X, Y, Z]
+    sig_xyz = np.transpose(sig_3d, (2, 1, 0))  # [X, Y, Z]
+
+    # Space directions: axis 0 = X → vx, axis 1 = Y → vy, axis 2 = Z → vz
+    bg_header = _make_nrrd_header(bg_xyz, vx, vy, vz)
+    sig_header = _make_nrrd_header(sig_xyz, vx, vy, vz)
+
+    # --- Write channel NRRDs ---
+    bg_path = channels_dir / f"{image_base}_background.nrrd"
+    sig_path = channels_dir / f"{image_base}_signal.nrrd"
+
+    nrrd.write(str(bg_path), bg_xyz, bg_header)
+    print(f"  Wrote {bg_path}  shape={bg_xyz.shape}")
+
+    nrrd.write(str(sig_path), sig_xyz, sig_header)
+    print(f"  Wrote {sig_path}  shape={sig_xyz.shape}")
+
+    print(f"  Space directions: [[{vx},0,0],[0,{vy},0],[0,0,{vz}]]")
+    print(f"  Space: left-posterior-superior")
+
+    return str(sig_path), str(bg_path)
+
 
 def main():
-    """Convert all TIFF files to NRRD format, or a specific one if argument provided."""
-    images_dir = Path("Images")
-    output_dir = Path("nrrd_output")
-    output_dir.mkdir(exist_ok=True)
+    """Convert TIFF(s) to channel NRRDs.
 
-    if not images_dir.exists():
-        print(f"Images directory not found: {images_dir}")
-        return
-
-    # Check if specific image base is provided
+    Usage:
+        python convert_tiff_to_nrrd.py <image_base>   # single image
+        python convert_tiff_to_nrrd.py                 # all images
+    """
     specific_image = sys.argv[1] if len(sys.argv) > 1 else None
 
     if specific_image:
-        # Convert only the specific image
-        tiff_file = None
-        for root, dirs, files in os.walk(images_dir):
-            for file in files:
-                if file.lower().endswith(('.tif', '.tiff')) and specific_image in file:
-                    tiff_file = Path(root) / file
-                    break
-            if tiff_file:
-                break
-
-        if not tiff_file:
-            print(f"TIFF file not found for {specific_image}")
-            sys.exit(1)
-
-        print(f"Converting specific image: {specific_image}")
-        nrrd_file = convert_tiff_to_nrrd(tiff_file, output_dir)
-        if nrrd_file:
-            print(f"\nConversion complete! {specific_image} converted.")
-        else:
-            print(f"\nConversion failed for {specific_image}")
+        try:
+            sig, bg = convert_and_split(specific_image)
+            print(f"\nConversion complete: {specific_image}")
+            print(f"  Signal:     {sig}")
+            print(f"  Background: {bg}")
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
-        # Convert all TIFF files
+        images_dir = Path("Images")
+        if not images_dir.exists():
+            print("Images directory not found")
+            sys.exit(1)
+
         tiff_files = []
-        for root, dirs, files in os.walk(images_dir):
-            for file in files:
-                if file.lower().endswith(('.tif', '.tiff')):
-                    tiff_files.append(Path(root) / file)
+        for root, _dirs, files in os.walk(images_dir):
+            for f in files:
+                if f.lower().endswith(('.tif', '.tiff')):
+                    tiff_files.append(Path(root) / f)
 
-        print(f"Converting {len(tiff_files)} TIFF files to NRRD format...")
-
-        converted_files = []
+        print(f"Converting {len(tiff_files)} TIFF files to channel NRRDs...")
+        converted = 0
         for tiff_file in tiff_files:
-            nrrd_file = convert_tiff_to_nrrd(tiff_file, output_dir)
-            if nrrd_file:
-                converted_files.append(nrrd_file)
+            base = tiff_file.stem
+            try:
+                convert_and_split(base)
+                converted += 1
+            except Exception as e:
+                print(f"  FAILED {base}: {e}")
 
-        print(f"\nConversion complete! {len(converted_files)} files converted.")
-        print(f"NRRD files saved to: {output_dir}")
+        print(f"\nDone: {converted}/{len(tiff_files)} converted.")
+
 
 if __name__ == "__main__":
-    import sys
     main()

@@ -72,14 +72,43 @@ fi
 # Create output directory
 mkdir -p corrected
 
-# Determine type
-if [[ $IMAGE_BASE == *VNC* ]]; then
-    template="JRCVNC2018U_template_lps.nrrd"
-    echo "  Type: VNC"
-else
-    template="JRC2018U_template_lps.nrrd"
-    echo "  Type: Brain"
+# Determine template from orientations.json (user's manual choice), fall back to filename heuristic
+template=$(source venv/bin/activate 2>/dev/null; python3 -c "
+import json, sys
+image_base = sys.argv[1]
+try:
+    with open('orientations.json') as f:
+        data = json.load(f)
+    for key, val in data.items():
+        if image_base in key:
+            t = val.get('manual_corrections', {}).get('template', '')
+            if t:
+                # Ensure _lps suffix
+                if '_lps' not in t:
+                    t = t + '_lps'
+                if not t.endswith('.nrrd'):
+                    t = t + '.nrrd'
+                print(t)
+                sys.exit(0)
+except Exception:
+    pass
+# Fallback: use filename heuristic
+if 'VNC' in image_base:
+    print('JRCVNC2018U_template_lps.nrrd')
+else:
+    print('JRC2018U_template_lps.nrrd')
+" "$IMAGE_BASE" 2>/dev/null)
+
+if [ -z "$template" ]; then
+    # Python failed — use filename fallback
+    if [[ $IMAGE_BASE == *VNC* ]]; then
+        template="JRCVNC2018U_template_lps.nrrd"
+    else
+        template="JRC2018U_template_lps.nrrd"
+    fi
 fi
+
+echo "  Template (from orientations.json): $template"
 
 # Get base name
 base="$IMAGE_BASE"
@@ -129,33 +158,8 @@ elif [ -f "$xform_dir/initial.xform" ]; then
     echo "  Resuming from affine registration (stage 2)"
 fi
 
-# Set moving_bg to bg_file (no orientation correction needed as it's already done)
+# Set moving_bg to bg_file (convert_tiff_to_nrrd.py already sets LPS space)
 moving_bg="$bg_file"
-
-# ────────────────────────────────────────────
-# Stage 0: Set space to LPS for input files
-# ────────────────────────────────────────────
-if [ $START_STAGE -le 0 ]; then
-    CURRENT_STAGE="set_lps"
-    update_progress stage_start set_lps
-    echo "  Setting space to left-posterior-superior for input files..."
-    source venv/bin/activate && python3 -c "
-import sys, nrrd
-
-sig, bg = sys.argv[1], sys.argv[2]
-
-data, header = nrrd.read(sig)
-header['space'] = 'left-posterior-superior'
-nrrd.write(sig, data, header)
-
-data, header = nrrd.read(bg)
-header['space'] = 'left-posterior-superior'
-nrrd.write(bg, data, header)
-
-print('Space set to LPS for input files')
-" "$signal_file" "$bg_file"
-    update_progress stage_end set_lps
-fi
 
 # ────────────────────────────────────────────
 # Stage 1: Create initial affine transformation

@@ -335,53 +335,96 @@ def main():
         saved_data = json.loads(ORIENTATIONS_FILE.read_text())
     manual_corrections = saved_data.get(image_path, {}).get('manual_corrections', {})
 
-    tiff_file = Path("Images") / f"{image_path}.tif"
-    if not tiff_file.exists():
-        tiff_file = Path("Images") / f"{image_path}.tiff"
+    # --- Determine the image base name (last component without path) ---
+    image_base = image_path.split('/')[-1]
+
+    # --- Try loading from channel NRRDs first (authoritative after conversion) ---
+    channels_dir = Path("channels")
+    signal_nrrd = channels_dir / f"{image_base}_signal.nrrd"
+    bg_nrrd = channels_dir / f"{image_base}_background.nrrd"
+    loaded_from_nrrd = False
+
+    if signal_nrrd.exists() and bg_nrrd.exists():
+        print(f"Loading from channel NRRDs: {signal_nrrd.name}, {bg_nrrd.name}", file=sys.stderr)
+        bg_data, bg_header = nrrd.read(str(bg_nrrd))
+        sig_data_raw, _ = nrrd.read(str(signal_nrrd))
+
+        # NRRD data is [X, Y, Z] — extract voxel sizes from space directions
+        sd = np.array(bg_header['space directions'], dtype=float)
+        vx = abs(sd[0][0])  # X spacing
+        vy = abs(sd[1][1])  # Y spacing
+        vz = abs(sd[2][2])  # Z spacing
+        sample_vox = [vx, vy, vz]  # [X, Y, Z] matching data axes
+
+        sig_data = sig_data_raw
+        loaded_from_nrrd = True
+
+        # Still need original shape from TIFF for metadata
+        tiff_file = Path("Images") / f"{image_path}.tif"
         if not tiff_file.exists():
-            print(json.dumps({"error": "Image not found"}))
-            sys.exit(1)
-
-    # Load full TIFF data and try to extract voxel sizes from metadata
-    with tifffile.TiffFile(str(tiff_file)) as tif:
-        raw_data = tif.asarray(series=0)
-        sample_vox = _extract_voxel_sizes(tif)
-    original_shape = list(raw_data.shape)
-    num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
-
-    # Create backup of original image if it doesn't exist
-    # Store backups in a _backups directory mirroring the Images structure
-    backup_dir = Path("_backups") / tiff_file.parent.relative_to(Path("Images"))
-    backup_file = backup_dir / tiff_file.name
-    if not backup_file.exists():
-        import shutil
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Creating backup: {backup_file}", file=sys.stderr)
-        shutil.copy2(str(tiff_file), str(backup_file))
-
-    # Extract background and signal channels
-    if raw_data.ndim == 4:
-        sig_channel = 1 - bg_channel
-        bg_data = raw_data[:, bg_channel, :, :]
-        sig_data = raw_data[:, sig_channel, :, :]
-    else:
-        # Already 3D (previously rotated single channel)
-        bg_data = raw_data
-        sig_data = None
-
-    # Ensure bg_data is 3D (Z, Y, X)
-    if bg_data.ndim != 3:
-        print(f"Warning: bg_data has {bg_data.ndim} dimensions with shape {bg_data.shape}, reshaping to 3D", file=sys.stderr)
-        if bg_data.ndim == 4 and bg_data.shape[0] == 1:
-            bg_data = bg_data[0]  # Remove singleton dimension
-        elif bg_data.ndim == 5:
-            # Handle 5D data - likely (Z, C, Y, Z, X) - take max projection
-            bg_data = np.max(bg_data, axis=(1, 3))  # Max over duplicate dimensions
+            tiff_file = Path("Images") / f"{image_path}.tiff"
+        if tiff_file.exists():
+            with tifffile.TiffFile(str(tiff_file)) as tif:
+                raw_data = tif.asarray(series=0)
+            original_shape = list(raw_data.shape)
+            num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
         else:
-            # Take maximum projection across first dimensions if they're small (likely channels/time)
-            while bg_data.ndim > 3:
-                bg_data = np.max(bg_data, axis=0)
-    print(f"Final bg_data shape: {bg_data.shape}", file=sys.stderr)
+            # Infer from NRRD
+            original_shape = list(bg_data.shape)
+            num_channels = 2  # we have signal + background
+
+        print(f"  NRRD bg shape: {bg_data.shape}  voxel: {sample_vox}", file=sys.stderr)
+    else:
+        # --- Fall back to loading from TIFF ---
+        tiff_file = Path("Images") / f"{image_path}.tif"
+        if not tiff_file.exists():
+            tiff_file = Path("Images") / f"{image_path}.tiff"
+            if not tiff_file.exists():
+                print(json.dumps({"error": "Image not found"}))
+                sys.exit(1)
+
+        with tifffile.TiffFile(str(tiff_file)) as tif:
+            raw_data = tif.asarray(series=0)
+            tiff_vox = _extract_voxel_sizes(tif)  # [vz, vy, vx]
+        original_shape = list(raw_data.shape)
+        num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
+
+        # Create backup of original image if it doesn't exist
+        backup_dir = Path("_backups") / tiff_file.parent.relative_to(Path("Images"))
+        backup_file = backup_dir / tiff_file.name
+        if not backup_file.exists():
+            import shutil
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Creating backup: {backup_file}", file=sys.stderr)
+            shutil.copy2(str(tiff_file), str(backup_file))
+
+        # Extract channels from TIFF: data is [Z, C, Y, X] or [Z, Y, X]
+        if raw_data.ndim == 4:
+            sig_channel = 1 - bg_channel
+            bg_raw = raw_data[:, bg_channel, :, :]   # [Z, Y, X]
+            sig_raw = raw_data[:, sig_channel, :, :]  # [Z, Y, X]
+        else:
+            bg_raw = raw_data
+            sig_raw = None
+
+        # Ensure 3D
+        if bg_raw.ndim != 3:
+            print(f"Warning: bg_data has {bg_raw.ndim} dims, shape {bg_raw.shape}, fixing", file=sys.stderr)
+            while bg_raw.ndim > 3:
+                bg_raw = np.max(bg_raw, axis=0)
+
+        # Transpose TIFF [Z, Y, X] → [X, Y, Z] to match NRRD convention
+        bg_data = np.transpose(bg_raw, (2, 1, 0))
+        sig_data = np.transpose(sig_raw, (2, 1, 0)) if sig_raw is not None else None
+
+        # Voxel sizes: _extract_voxel_sizes returns [vz, vy, vx]
+        # We need [vx, vy, vz] to match [X, Y, Z] data order
+        sample_vox = [tiff_vox[2], tiff_vox[1], tiff_vox[0]]
+
+        print(f"  TIFF shape: {raw_data.shape} → transposed bg: {bg_data.shape}  voxel: {sample_vox}", file=sys.stderr)
+
+    # --- From here, bg_data and sig_data are always [X, Y, Z] ---
+    # --- sample_vox is [vx, vy, vz] matching axes ---
 
     # Determine template
     template_key = manual_corrections.get('template')
@@ -395,7 +438,7 @@ def main():
     template_info = load_template(template_key)
     template_vox = template_info['vox_sizes'] if template_info else [0.5, 0.5, 0.5]
 
-    # Analyze background channel (for alignment comparison)
+    # Analyze background channel
     sample_proj_2d, sample_proj_1d, sample_peaks = analyze_projections(bg_data, sample_vox)
 
     # Analyze template
@@ -412,36 +455,36 @@ def main():
         sample_peaks, sample_proj_1d, template_key, template_info
     )
 
-    # Use manual correction if available
     if 'template_correct' in manual_corrections:
         orientation_correct = manual_corrections['template_correct']
 
-    # Generate background (sample) thumbnails
+    # Generate thumbnails from [X, Y, Z] data
+    # axis 0 projection (along X) → sagittal/lateral view → label 'x'
+    # axis 1 projection (along Y) → coronal/anterior view → label 'y'
+    # axis 2 projection (along Z) → axial/dorsal view → label 'z'
     original_thumbnails = {}
     for i, key in enumerate(['x', 'y', 'z']):
         original_thumbnails[key] = generate_thumbnail(sample_proj_2d[i], sample_vox, i)
 
-    # Generate template thumbnails
     template_thumbnails = {}
     if template_proj_2d is not None:
         for i, key in enumerate(['x', 'y', 'z']):
             template_thumbnails[key] = generate_thumbnail(template_proj_2d[i], template_vox, i)
 
-    # Generate signal channel thumbnails
     signal_thumbnails = {}
     if sig_data is not None:
         sig_proj_2d, _, _ = analyze_projections(sig_data, sample_vox)
         for i, key in enumerate(['x', 'y', 'z']):
             signal_thumbnails[key] = generate_thumbnail(sig_proj_2d[i], sample_vox, i)
 
-    # Generate histograms (background channel vs template)
+    # Generate histograms
     histogram = generate_histogram(
         sample_proj_1d, sample_peaks,
         template_proj_1d, template_peaks_data,
         title=f'{image_path} vs {template_key}'
     )
 
-    # Template info summary
+    # Summaries
     template_summary = {}
     if template_info is not None:
         template_summary = {
@@ -450,7 +493,6 @@ def main():
             "physical_size": [round(s, 1) for s in template_info['physical_size']],
         }
 
-    # Sample info summary
     sample_summary = {
         "shape": original_shape,
         "num_channels": num_channels,
@@ -459,7 +501,6 @@ def main():
         "physical_size": [round(s * v, 1) for s, v in zip(bg_data.shape, sample_vox)],
     }
 
-    # Peak counts per axis
     peak_summary = {}
     for axis in range(3):
         peak_summary[axis] = {
@@ -484,7 +525,7 @@ def main():
     }
     save_to_orientations(image_path, image_info_for_json, automated_analysis_for_json)
 
-    # Build response for frontend
+    # Build response
     result = {
         "name": image_path,
         "template": template_key,
@@ -500,6 +541,7 @@ def main():
         "peak_summary": peak_summary,
         "background_channel": bg_channel,
         "num_channels": num_channels,
+        "loaded_from_nrrd": loaded_from_nrrd,
     }
 
     print(json.dumps(result))
