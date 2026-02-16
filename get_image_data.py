@@ -345,38 +345,49 @@ def main():
     loaded_from_nrrd = False
 
     if signal_nrrd.exists() and bg_nrrd.exists():
-        print(f"Loading from channel NRRDs: {signal_nrrd.name}, {bg_nrrd.name}", file=sys.stderr)
-        bg_data, bg_header = nrrd.read(str(bg_nrrd))
-        sig_data_raw, _ = nrrd.read(str(signal_nrrd))
+        try:
+            print(f"Loading from channel NRRDs: {signal_nrrd.name}, {bg_nrrd.name}", file=sys.stderr)
+            bg_data, bg_header = nrrd.read(str(bg_nrrd))
+            sig_data_raw, _ = nrrd.read(str(signal_nrrd))
 
-        # NRRD data is [X, Y, Z] — extract voxel sizes from space directions
-        # Use norm of each row (not just diagonal) because 90° rotations
-        # swap entire rows, creating off-diagonal entries
-        sd = np.array(bg_header['space directions'], dtype=float)
-        vx = float(np.linalg.norm(sd[0]))  # X spacing
-        vy = float(np.linalg.norm(sd[1]))  # Y spacing
-        vz = float(np.linalg.norm(sd[2]))  # Z spacing
-        sample_vox = [vx, vy, vz]  # [X, Y, Z] matching data axes
+            # NRRD data is [X, Y, Z] — extract voxel sizes from space directions
+            # Use norm of each row (not just diagonal) because 90° rotations
+            # swap entire rows, creating off-diagonal entries
+            sd = np.array(bg_header['space directions'], dtype=float)
+            vx = float(np.linalg.norm(sd[0]))  # X spacing
+            vy = float(np.linalg.norm(sd[1]))  # Y spacing
+            vz = float(np.linalg.norm(sd[2]))  # Z spacing
+            sample_vox = [vx, vy, vz]  # [X, Y, Z] matching data axes
 
-        sig_data = sig_data_raw
-        loaded_from_nrrd = True
+            sig_data = sig_data_raw
+            loaded_from_nrrd = True
 
-        # Still need original shape from TIFF for metadata
-        tiff_file = Path("Images") / f"{image_path}.tif"
-        if not tiff_file.exists():
-            tiff_file = Path("Images") / f"{image_path}.tiff"
-        if tiff_file.exists():
-            with tifffile.TiffFile(str(tiff_file)) as tif:
-                raw_data = tif.asarray(series=0)
-            original_shape = list(raw_data.shape)
-            num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
-        else:
-            # Infer from NRRD
-            original_shape = list(bg_data.shape)
-            num_channels = 2  # we have signal + background
+            # Still need original shape from TIFF for metadata
+            tiff_file = Path("Images") / f"{image_path}.tif"
+            if not tiff_file.exists():
+                tiff_file = Path("Images") / f"{image_path}.tiff"
+            if tiff_file.exists():
+                with tifffile.TiffFile(str(tiff_file)) as tif:
+                    raw_data = tif.asarray(series=0)
+                original_shape = list(raw_data.shape)
+                num_channels = raw_data.shape[1] if raw_data.ndim == 4 else 1
+            else:
+                # Infer from NRRD
+                original_shape = list(bg_data.shape)
+                num_channels = 2  # we have signal + background
 
-        print(f"  NRRD bg shape: {bg_data.shape}  voxel: {sample_vox}", file=sys.stderr)
-    else:
+            print(f"  NRRD bg shape: {bg_data.shape}  voxel: {sample_vox}", file=sys.stderr)
+        except Exception as nrrd_err:
+            # Corrupted NRRD (e.g. partial write from a killed rotation) — fall through to TIFF
+            print(f"  NRRD load failed ({nrrd_err}), removing corrupted files and falling back to TIFF", file=sys.stderr)
+            loaded_from_nrrd = False
+            for bad in (signal_nrrd, bg_nrrd):
+                try:
+                    bad.unlink()
+                except OSError:
+                    pass
+
+    if not loaded_from_nrrd:
         # --- Fall back to loading from TIFF ---
         tiff_file = Path("Images") / f"{image_path}.tif"
         if not tiff_file.exists():
