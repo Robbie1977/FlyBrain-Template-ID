@@ -436,6 +436,21 @@ def main():
 
         print(f"  TIFF shape: {raw_data.shape} → transposed bg: {bg_data.shape}  voxel: {sample_vox}", file=sys.stderr)
 
+        # Auto-create channel NRRDs so they exist for future rotation / alignment
+        try:
+            from convert_tiff_to_nrrd import _make_nrrd_header
+            channels_dir.mkdir(exist_ok=True)
+            vx_w, vy_w, vz_w = sample_vox
+            bg_hdr = _make_nrrd_header(bg_data, vx_w, vy_w, vz_w)
+            nrrd.write(str(bg_nrrd), bg_data, bg_hdr)
+            print(f"  Auto-created {bg_nrrd}  shape={bg_data.shape}", file=sys.stderr)
+            if sig_data is not None:
+                sig_hdr = _make_nrrd_header(sig_data, vx_w, vy_w, vz_w)
+                nrrd.write(str(signal_nrrd), sig_data, sig_hdr)
+                print(f"  Auto-created {signal_nrrd}  shape={sig_data.shape}", file=sys.stderr)
+        except Exception as write_err:
+            print(f"  Warning: could not auto-create channel NRRDs: {write_err}", file=sys.stderr)
+
     # --- From here, bg_data and sig_data are always [X, Y, Z] ---
     # --- sample_vox is [vx, vy, vz] matching axes ---
 
