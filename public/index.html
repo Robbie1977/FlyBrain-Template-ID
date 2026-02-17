@@ -593,19 +593,18 @@
             return mats[axis][k] || [[1,0,0],[0,1,0],[0,0,1]];
         }
         // Decompose rotation matrix into (rx, ry, rz) Euler angles matching apply_rotation.py order: X then Y then Z.
-        // Prefers the simplest decomposition (fewest non-zero axes).
+        // Prefers the decomposition with smallest sum of absolute degrees.
         function matrixToAngles(M) {
-            let best = null, bestNonZero = 4;
+            let best = null, bestSum = Infinity;
             for (let rx of [0, 90, 180, 270])
                 for (let ry of [0, 90, 180, 270])
                     for (let rz of [0, 90, 180, 270]) {
                         const test = mat3Mul(makeRotMatrix('z', rz), mat3Mul(makeRotMatrix('y', ry), makeRotMatrix('x', rx)));
                         if (mat3Eq(test, M)) {
-                            const nonZero = (rx !== 0 ? 1 : 0) + (ry !== 0 ? 1 : 0) + (rz !== 0 ? 1 : 0);
-                            if (nonZero < bestNonZero) {
+                            const sum = Math.abs(rx) + Math.abs(ry) + Math.abs(rz);
+                            if (sum < bestSum) {
                                 best = { x: rx, y: ry, z: rz };
-                                bestNonZero = nonZero;
-                                if (nonZero <= 1) return best; // can't do better than single-axis
+                                bestSum = sum;
                             }
                         }
                     }
@@ -690,30 +689,24 @@
             const applyBtn = $('apply-rotation');
             if (applyBtn) applyBtn.disabled = isIdentity;
             if (!originalThumbnails.x) return;
-            const mapping = computeViewMapping(previewMatrix);
             const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
-            const origLabels = { x: 'Dorsal', y: 'Lateral', z: 'Anterior' };
+            const inPlaneAxis = ['z', 'y', 'x'];
+            const keys = ['x', 'y', 'z'];
             for (let i = 0; i < 3; i++) {
                 const img = document.getElementById(`preview-sample-${i}`);
                 if (!img) continue;
-                const m = mapping[i];
-                const imgData = originalThumbnails[m.sourceKey];
+                const imgData = originalThumbnails[keys[i]];
                 if (imgData) img.src = `data:image/png;base64,${imgData}`;
+                const axis = inPlaneAxis[i];
+                const rot = angles[axis];
                 const transforms = [];
-                if (m.flipH) transforms.push('scaleX(-1)');
-                if (m.flipV) transforms.push('scaleY(-1)');
-                if (m.cssRot !== 0) transforms.push(`rotate(${m.cssRot}deg)`);
+                if (rot !== 0) transforms.push(`rotate(${rot}deg)`);
                 img.style.transform = transforms.length ? transforms.join(' ') : 'none';
-                // Update label if view source changed
+                // Update label
                 const labelEl = document.getElementById(`view-label-${i}`);
                 if (labelEl) {
-                    if (m.sourceKey === ['x','y','z'][i]) {
-                        labelEl.textContent = viewLabels[i];
-                        labelEl.classList.remove('view-label-highlight');
-                    } else {
-                        labelEl.textContent = `${viewLabels[i]} \u2190 was ${origLabels[m.sourceKey]}`;
-                        labelEl.classList.add('view-label-highlight');
-                    }
+                    labelEl.textContent = viewLabels[i];
+                    labelEl.classList.remove('view-label-highlight');
                 }
             }
         }
