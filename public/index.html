@@ -1174,7 +1174,22 @@
                         if (pair[0]===0 && pair[1]===1) axis = 'x';
                         else if (pair[0]===0 && pair[1]===2) axis = 'y';
                         else axis = 'z';
+                        // Apply the rotation
                         applyPreviewRotation(axis, 90);
+                        // Also swap the thumbnails for the two views being swapped
+                        const imgFrom = document.getElementById(`preview-sample-${from}`);
+                        const imgTo = document.getElementById(`preview-sample-${to}`);
+                        const tempSrc = imgFrom.src;
+                        imgFrom.src = imgTo.src;
+                        imgTo.src = tempSrc;
+                        // Update labels to indicate the swap
+                        const labelFrom = document.getElementById(`view-label-${from}`);
+                        const labelTo = document.getElementById(`view-label-${to}`);
+                        const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
+                        labelFrom.textContent = `${viewLabels[from]} ↔ ${viewLabels[to]}`;
+                        labelTo.textContent = `${viewLabels[to]} ↔ ${viewLabels[from]}`;
+                        labelFrom.classList.add('view-label-highlight');
+                        labelTo.classList.add('view-label-highlight');
                         this.value = '';
                     });
                     controls.appendChild(swapSelect);
