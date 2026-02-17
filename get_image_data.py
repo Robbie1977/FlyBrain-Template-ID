@@ -18,6 +18,7 @@ import sys
 import json
 import base64
 from io import BytesIO
+import concurrent.futures
 
 TEMPLATE_FILES = {
     "JRC2018U_template": Path("JRC2018U_template.nrrd"),
@@ -119,6 +120,27 @@ def load_template(template_key):
     return _template_cache[template_key]
 
 
+def process_axis(data, signal_threshold, axis, vox_sizes, axes_names):
+    proj_2d = np.max(data, axis=axis)
+    filtered_data = np.where(data > signal_threshold, data, 0)
+    filtered_proj = np.sum(filtered_data, axis=tuple(i for i in range(3) if i != axis))
+    filtered_proj = np.asarray(filtered_proj).flatten()
+    physical_coords = np.arange(len(filtered_proj)) * vox_sizes[axis]
+    peaks, properties = find_peaks(
+        filtered_proj,
+        height=np.max(filtered_proj) * 0.1 if np.max(filtered_proj) > 0 else 0,
+        distance=max(len(filtered_proj) // 20, 1)
+    )
+    return axis, proj_2d, {
+        'filtered': filtered_proj,
+        'physical_coords': physical_coords,
+    }, {
+        'peaks': peaks,
+        'heights': properties['peak_heights'] if 'peak_heights' in properties else np.array([]),
+        'num_peaks': len(peaks),
+        'axis_name': axes_names[axis],
+    }
+
 def analyze_projections(data, vox_sizes):
     """Analyze projections and find peaks. Returns 2D max projections and 1D filtered profiles."""
     signal_threshold = np.percentile(data[data > 0], 75) if np.any(data > 0) else np.mean(data)
@@ -129,34 +151,13 @@ def analyze_projections(data, vox_sizes):
 
     axes_names = ['X (Left-Right)', 'Y (Anterior-Posterior)', 'Z (Dorsal-Ventral)']
 
-    for axis in range(3):
-        proj_2d = np.max(data, axis=axis)
-
-        filtered_data = np.where(data > signal_threshold, data, 0)
-        filtered_proj = np.sum(filtered_data, axis=tuple(i for i in range(3) if i != axis))
-        
-        # Ensure filtered_proj is 1D for find_peaks
-        filtered_proj = np.asarray(filtered_proj).flatten()
-
-        physical_coords = np.arange(len(filtered_proj)) * vox_sizes[axis]
-
-        peaks, properties = find_peaks(
-            filtered_proj,
-            height=np.max(filtered_proj) * 0.1 if np.max(filtered_proj) > 0 else 0,
-            distance=max(len(filtered_proj) // 20, 1)
-        )
-
-        projections_2d[axis] = proj_2d
-        projections_1d[axis] = {
-            'filtered': filtered_proj,
-            'physical_coords': physical_coords,
-        }
-        peaks_data[axis] = {
-            'peaks': peaks,
-            'heights': properties['peak_heights'] if 'peak_heights' in properties else np.array([]),
-            'num_peaks': len(peaks),
-            'axis_name': axes_names[axis],
-        }
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = [executor.submit(process_axis, data, signal_threshold, axis, vox_sizes, axes_names) for axis in range(3)]
+        for future in concurrent.futures.as_completed(futures):
+            axis, proj_2d, proj_1d, peaks = future.result()
+            projections_2d[axis] = proj_2d
+            projections_1d[axis] = proj_1d
+            peaks_data[axis] = peaks
 
     return projections_2d, projections_1d, peaks_data
 
@@ -510,20 +511,32 @@ def main():
     # axis 1 projection (along Y) → coronal/anterior view → label 'y'
     # axis 2 projection (along Z) → axial/dorsal view → label 'z'
     original_thumbnails = {}
-    for i, key in enumerate(['x', 'y', 'z']):
-        original_thumbnails[key] = generate_thumbnail(sample_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = {}
+        for i, key in enumerate(['x', 'y', 'z']):
+            futures[executor.submit(generate_thumbnail, sample_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])] = key
+        for future in concurrent.futures.as_completed(futures):
+            original_thumbnails[futures[future]] = future.result()
 
     template_thumbnails = {}
     if template_proj_2d is not None:
-        for i, key in enumerate(['x', 'y', 'z']):
-            template_thumbnails[key] = generate_thumbnail(template_proj_2d[i], template_vox, i)
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = {}
+            for i, key in enumerate(['x', 'y', 'z']):
+                futures[executor.submit(generate_thumbnail, template_proj_2d[i], template_vox, i)] = key
+            for future in concurrent.futures.as_completed(futures):
+                template_thumbnails[futures[future]] = future.result()
 
     signal_thumbnails = {}
     if sig_data is not None:
         sig_proj_2d, _, _ = analyze_projections(sig_data, sample_vox)
         sig_proj_2d = [sig_proj_2d[proj_axis_for_anatomical[key]] for key in ['x', 'y', 'z']]
-        for i, key in enumerate(['x', 'y', 'z']):
-            signal_thumbnails[key] = generate_thumbnail(sig_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = {}
+            for i, key in enumerate(['x', 'y', 'z']):
+                futures[executor.submit(generate_thumbnail, sig_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])] = key
+            for future in concurrent.futures.as_completed(futures):
+                signal_thumbnails[futures[future]] = future.result()
 
     # Generate histograms
     histogram = generate_histogram(

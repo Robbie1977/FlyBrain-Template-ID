@@ -918,11 +918,13 @@ app.post('/api/regenerate-thumbnails', (req, res) => {
 
     const cmd = `source venv/bin/activate && python3 -c "
 import sys, json, base64, io
+import concurrent.futures
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import nrrd
 import numpy as np
+import scipy.ndimage
 
 template_path = sys.argv[1]
 output_bg_path = sys.argv[2]
@@ -974,21 +976,47 @@ template_data, _ = nrrd.read(template_path)
 aligned_bg_data, _ = nrrd.read(output_bg_path)
 
 axes = [0, 1, 2]
-template_projs = [np.max(template_data, axis=ax) for ax in axes]
-aligned_projs  = [np.max(aligned_bg_data, axis=ax) for ax in axes]
+with concurrent.futures.ProcessPoolExecutor() as executor:
+    futures = {}
+    for ax in axes:
+        futures[executor.submit(np.max, template_data, axis=ax)] = ('template', ax)
+        futures[executor.submit(np.max, aligned_bg_data, axis=ax)] = ('aligned', ax)
+    template_projs = [None] * 3
+    aligned_projs = [None] * 3
+    for future in concurrent.futures.as_completed(futures):
+        typ, ax = futures[future]
+        if typ == 'template':
+            template_projs[ax] = future.result()
+        else:
+            aligned_projs[ax] = future.result()
 
 thumbnails = {}
-for i, axis in enumerate(['x', 'y', 'z']):
-    thumbnails[f'{axis}_template'] = generate_thumbnail(template_projs[i], f'Template {axis.upper()}-axis')
-    thumbnails[f'{axis}_aligned']  = generate_thumbnail(aligned_projs[i],  f'Aligned {axis.upper()}-axis')
-    thumbnails[f'{axis}_overlay']  = generate_overlay(template_projs[i], aligned_projs[i], f'Overlay {axis.upper()}-axis')
+with concurrent.futures.ProcessPoolExecutor() as executor:
+    futures = {}
+    for i, axis in enumerate(['x', 'y', 'z']):
+        futures[executor.submit(generate_thumbnail, template_projs[i], f'Template {axis.upper()}-axis')] = f'{axis}_template'
+        futures[executor.submit(generate_thumbnail, aligned_projs[i], f'Aligned {axis.upper()}-axis')] = f'{axis}_aligned'
+        futures[executor.submit(generate_overlay, template_projs[i], aligned_projs[i], f'Overlay {axis.upper()}-axis')] = f'{axis}_overlay'
+    for future in concurrent.futures.as_completed(futures):
+        thumbnails[futures[future]] = future.result()
 
 if output_signal_path:
     try:
         signal_data, _ = nrrd.read(output_signal_path)
-        signal_projs = [np.max(signal_data, axis=ax) for ax in axes]
-        for i, axis in enumerate(['x', 'y', 'z']):
-            thumbnails[f'{axis}_signal'] = generate_thumbnail(signal_projs[i], f'Signal {axis.upper()}-axis')
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = {}
+            for ax in axes:
+                futures[executor.submit(np.max, signal_data, axis=ax)] = ax
+            signal_projs = [None] * 3
+            for future in concurrent.futures.as_completed(futures):
+                ax = futures[future]
+                signal_projs[ax] = future.result()
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = {}
+            for i, axis in enumerate(['x', 'y', 'z']):
+                futures[executor.submit(generate_thumbnail, signal_projs[i], f'Signal {axis.upper()}-axis')] = f'{axis}_signal'
+            for future in concurrent.futures.as_completed(futures):
+                thumbnails[futures[future]] = future.result()
         print('Signal thumbnails included')
     except Exception as e:
         print(f'Warning: could not load signal file: {e}')
