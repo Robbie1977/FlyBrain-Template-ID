@@ -629,11 +629,16 @@
                 for (let c = 0; c < 3; c++) { if (R[q][c] !== 0) { n = c; nSign = R[q][c]; break; } }
                 let cssRot = 0, flipH = false, flipV = false;
                 if (m === k && n === l) {
-                    flipV = mSign < 0; flipH = nSign < 0;
+                    // Same axis order: no CSS rotation needed, just flips
+                    flipV = mSign < 0;
+                    flipH = nSign < 0;
                 } else if (m === l && n === k) {
-                    cssRot = -90; // CCW to match np.rot90 k=1 direction
-                    flipH = nSign < 0; // after CCW 90°: screen_right = +old_k
-                    flipV = mSign > 0; // after CCW 90°: screen_down = -old_l
+                    // Axes swapped: 90° CW CSS rotation to transpose,
+                    // then flips. Note flipH polarity is inverted vs
+                    // same-order because the 90° rotation reverses one axis.
+                    cssRot = 90;
+                    flipV = mSign < 0;
+                    flipH = nSign > 0;
                 }
                 mapping.push({ sourceKey, cssRot, flipH, flipV });
             }
