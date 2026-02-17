@@ -404,12 +404,12 @@
                 <div class="rotation-toolbar">
                     <div class="rot-toolbar-group">
                         <span class="rot-group-label">3D Rotation:</span>
-                        <button class="rot-btn" onclick="applyPreviewRotation('x', 90)" title="X +90°: Swap Dorsal ↔ Lateral">X +90°</button>
-                        <button class="rot-btn" onclick="applyPreviewRotation('x', 270)" title="X -90°: Swap Dorsal ↔ Lateral (reverse)">X -90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('x', 90)" title="X +90°: Swap Lateral ↔ Anterior">X +90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('x', 270)" title="X -90°: Swap Lateral ↔ Anterior (reverse)">X -90°</button>
                         <button class="rot-btn" onclick="applyPreviewRotation('y', 90)" title="Y +90°: Swap Dorsal ↔ Anterior">Y +90°</button>
                         <button class="rot-btn" onclick="applyPreviewRotation('y', 270)" title="Y -90°: Swap Dorsal ↔ Anterior (reverse)">Y -90°</button>
-                        <button class="rot-btn" onclick="applyPreviewRotation('z', 90)" title="Z +90°: Swap Lateral ↔ Anterior">Z +90°</button>
-                        <button class="rot-btn" onclick="applyPreviewRotation('z', 270)" title="Z -90°: Swap Lateral ↔ Anterior (reverse)">Z -90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('z', 90)" title="Z +90°: Swap Dorsal ↔ Lateral">Z +90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('z', 270)" title="Z -90°: Swap Dorsal ↔ Lateral (reverse)">Z -90°</button>
                     </div>
                     <div class="rot-toolbar-group">
                         <button class="rot-btn rot-btn-reset" onclick="resetPreview()">&#x27F2; Reset</button>
@@ -1178,9 +1178,13 @@
                         const [from, to] = this.value.split('-').map(Number);
                         const pair = [from, to].sort();
                         let axis;
-                        if (pair[0]===0 && pair[1]===1) axis = 'x';
+                        // Rotation axis that swaps the two views:
+                        // Z rotation (axes 0,1): swaps Dorsal(0) ↔ Lateral(1)
+                        // Y rotation (axes 0,2): swaps Dorsal(0) ↔ Anterior(2)
+                        // X rotation (axes 1,2): swaps Lateral(1) ↔ Anterior(2)
+                        if (pair[0]===0 && pair[1]===1) axis = 'z';
                         else if (pair[0]===0 && pair[1]===2) axis = 'y';
-                        else axis = 'z';
+                        else axis = 'x';
                         applyPreviewRotation(axis, 90);
                         this.value = '';
                     });
