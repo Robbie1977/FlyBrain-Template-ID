@@ -611,21 +611,40 @@
                     }
             return best || { x: 0, y: 0, z: 0 };
         }
-        // Determine which original thumbnail + CSS transform for each view slot
+        // Determine which original thumbnail + CSS transform for each view slot.
+        //
+        // View slots:  0 = Dorsal (projects along axis 2)
+        //              1 = Lateral (projects along axis 1)
+        //              2 = Anterior (projects along axis 0)
+        //
+        // Thumbnail keys: 'x' = np.max(data, axis=0) → [Y,Z]
+        //                 'y' = np.max(data, axis=1) → [X,Z]
+        //                 'z' = np.max(data, axis=2) → [X,Y]
+        //
+        // R is the cumulative rotation matrix: new_coord = R · old_coord
+        // R[new_axis][old_axis] gives the coefficient.
         function computeViewMapping(R) {
             const keys = ['x', 'y', 'z'];
+            // Map view slot index to the world axis it projects along
+            const slotAxis = [2, 1, 0]; // slot 0→axis 2, slot 1→axis 1, slot 2→axis 0
             const mapping = [];
             for (let i = 0; i < 3; i++) {
+                const si = slotAxis[i]; // new-space axis this view projects along
+                // Find which old axis maps to si: R[si][j] != 0
                 let j = -1;
-                for (let c = 0; c < 3; c++) { if (R[i][c] !== 0) { j = c; break; } }
+                for (let c = 0; c < 3; c++) { if (R[si][c] !== 0) { j = c; break; } }
                 const sourceKey = keys[j];
-                const oldRem = [0,1,2].filter(x => x !== j); // vertical=k, horizontal=l in original image
-                const k = oldRem[0], l = oldRem[1];
-                const newRem = [0,1,2].filter(x => x !== i); // vertical=p, horizontal=q in display
-                const p = newRem[0], q = newRem[1];
-                let m = -1, mSign = 0; // new axis p → mSign * old axis m
+                // Source thumbnail's in-plane axes (row, col) — sorted ascending
+                const oldRem = [0,1,2].filter(x => x !== j);
+                const k = oldRem[0], l = oldRem[1]; // k=row(vert), l=col(horiz)
+                // Display slot's in-plane axes — sorted ascending
+                const newRem = [0,1,2].filter(x => x !== si);
+                const p = newRem[0], q = newRem[1]; // p=row(vert), q=col(horiz)
+                // Which old axis maps to display row p? R[p][m] = mSign
+                let m = -1, mSign = 0;
                 for (let c = 0; c < 3; c++) { if (R[p][c] !== 0) { m = c; mSign = R[p][c]; break; } }
-                let n = -1, nSign = 0; // new axis q → nSign * old axis n
+                // Which old axis maps to display col q? R[q][n] = nSign
+                let n = -1, nSign = 0;
                 for (let c = 0; c < 3; c++) { if (R[q][c] !== 0) { n = c; nSign = R[q][c]; break; } }
                 let cssRot = 0, flipH = false, flipV = false;
                 if (m === k && n === l) {
@@ -634,8 +653,8 @@
                     flipH = nSign < 0;
                 } else if (m === l && n === k) {
                     // Axes swapped: 90° CW CSS rotation to transpose,
-                    // then flips. Note flipH polarity is inverted vs
-                    // same-order because the 90° rotation reverses one axis.
+                    // then flips. flipH polarity is inverted vs same-order
+                    // because the 90° CW rotation reverses one axis direction.
                     cssRot = 90;
                     flipV = mSign < 0;
                     flipH = nSign > 0;
