@@ -360,16 +360,6 @@ def main():
             vz = float(np.linalg.norm(sd[2]))  # Z spacing
             sample_vox = [vx, vy, vz]  # [X, Y, Z] matching data axes
 
-            # Determine which array axis corresponds to anatomical X, Y, Z
-            proj_axis_for_anatomical = {}
-            for i in range(3):
-                if abs(sd[i][0]) > 1e-6:
-                    proj_axis_for_anatomical['x'] = i
-                if abs(sd[i][1]) > 1e-6:
-                    proj_axis_for_anatomical['y'] = i
-                if abs(sd[i][2]) > 1e-6:
-                    proj_axis_for_anatomical['z'] = i
-
             sig_data = sig_data_raw
             loaded_from_nrrd = True
 
@@ -465,11 +455,10 @@ def main():
     # --- From here, bg_data and sig_data are always [X, Y, Z] ---
     # --- sample_vox is [vx, vy, vz] matching axes ---
 
-    if loaded_from_nrrd:
-        # proj_axis_for_anatomical already set above
-        pass
-    else:
-        proj_axis_for_anatomical = {'x': 0, 'y': 1, 'z': 2}
+    # Thumbnails always use data-axis-order: key 'x' = projection along axis 0, etc.
+    # The frontend's computeViewMapping handles any rotation-based reordering.
+    # Do NOT reorder based on space_directions — that would undo rotations visually.
+    proj_axis_for_anatomical = {'x': 0, 'y': 1, 'z': 2}
 
     # Determine template
     template_key = manual_corrections.get('template')
@@ -486,8 +475,8 @@ def main():
     # Analyze background channel
     sample_proj_2d, sample_proj_1d, sample_peaks = analyze_projections(bg_data, sample_vox)
 
-    # Reorder projections to match anatomical axes
-    sample_proj_2d = [sample_proj_2d[proj_axis_for_anatomical[key]] for key in ['x', 'y', 'z']]
+    # Convert dict {0: proj, 1: proj, 2: proj} to list [proj0, proj1, proj2]
+    sample_proj_2d = [sample_proj_2d[i] for i in range(3)]
 
     # Analyze template
     template_proj_2d = None
@@ -506,15 +495,13 @@ def main():
     if 'template_correct' in manual_corrections:
         orientation_correct = manual_corrections['template_correct']
 
-    # Generate thumbnails from [X, Y, Z] data
-    # axis 0 projection (along X) → sagittal/lateral view → label 'x'
-    # axis 1 projection (along Y) → coronal/anterior view → label 'y'
-    # axis 2 projection (along Z) → axial/dorsal view → label 'z'
+    # Generate thumbnails from [X, Y, Z] data — one per data axis
+    # key 'x' = projection along axis 0, key 'y' = along axis 1, key 'z' = along axis 2
     original_thumbnails = {}
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = {}
         for i, key in enumerate(['x', 'y', 'z']):
-            futures[executor.submit(generate_thumbnail, sample_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])] = key
+            futures[executor.submit(generate_thumbnail, sample_proj_2d[i], sample_vox, i)] = key
         for future in concurrent.futures.as_completed(futures):
             original_thumbnails[futures[future]] = future.result()
 
@@ -530,11 +517,11 @@ def main():
     signal_thumbnails = {}
     if sig_data is not None:
         sig_proj_2d, _, _ = analyze_projections(sig_data, sample_vox)
-        sig_proj_2d = [sig_proj_2d[proj_axis_for_anatomical[key]] for key in ['x', 'y', 'z']]
+        sig_proj_2d = [sig_proj_2d[i] for i in range(3)]
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = {}
             for i, key in enumerate(['x', 'y', 'z']):
-                futures[executor.submit(generate_thumbnail, sig_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])] = key
+                futures[executor.submit(generate_thumbnail, sig_proj_2d[i], sample_vox, i)] = key
             for future in concurrent.futures.as_completed(futures):
                 signal_thumbnails[futures[future]] = future.result()
 
