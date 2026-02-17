@@ -578,26 +578,38 @@
             return true;
         }
         // Build rotation matrix matching apply_rotation.py np.rot90 convention:
-        // X: axes(0,1) axis2 invariant, Y: axes(0,2) axis1 invariant, Z: axes(1,2) axis0 invariant
+        // np.rot90(data, k=1, axes=(a,b)) rotates axis a toward axis b.
+        // X rotation: axes(1,2) — Y→Z, leaves X invariant
+        // Y rotation: axes(0,2) — X→Z, leaves Y invariant
+        // Z rotation: axes(0,1) — X→Y, leaves Z invariant
         function makeRotMatrix(axis, deg) {
             const k = ((deg % 360) + 360) % 360;
             if (k === 0) return [[1,0,0],[0,1,0],[0,0,1]];
             const mats = {
-                x: { 90:[[0,-1,0],[1,0,0],[0,0,1]], 180:[[-1,0,0],[0,-1,0],[0,0,1]], 270:[[0,1,0],[-1,0,0],[0,0,1]] },
-                y: { 90:[[0,0,-1],[0,1,0],[1,0,0]], 180:[[-1,0,0],[0,1,0],[0,0,-1]], 270:[[0,0,1],[0,1,0],[-1,0,0]] },
-                z: { 90:[[1,0,0],[0,0,-1],[0,1,0]], 180:[[1,0,0],[0,-1,0],[0,0,-1]], 270:[[1,0,0],[0,0,1],[0,-1,0]] }
+                x: { 90:[[1,0,0],[0,0,1],[0,-1,0]], 180:[[1,0,0],[0,-1,0],[0,0,-1]], 270:[[1,0,0],[0,0,-1],[0,1,0]] },
+                y: { 90:[[0,0,1],[0,1,0],[-1,0,0]], 180:[[-1,0,0],[0,1,0],[0,0,-1]], 270:[[0,0,-1],[0,1,0],[1,0,0]] },
+                z: { 90:[[0,1,0],[-1,0,0],[0,0,1]], 180:[[-1,0,0],[0,-1,0],[0,0,1]], 270:[[0,-1,0],[1,0,0],[0,0,1]] }
             };
             return mats[axis][k] || [[1,0,0],[0,1,0],[0,0,1]];
         }
-        // Decompose rotation matrix into (rx, ry, rz) Euler angles matching apply_rotation.py order: X then Y then Z
+        // Decompose rotation matrix into (rx, ry, rz) Euler angles matching apply_rotation.py order: X then Y then Z.
+        // Prefers the simplest decomposition (fewest non-zero axes).
         function matrixToAngles(M) {
+            let best = null, bestNonZero = 4;
             for (let rx of [0, 90, 180, 270])
                 for (let ry of [0, 90, 180, 270])
                     for (let rz of [0, 90, 180, 270]) {
                         const test = mat3Mul(makeRotMatrix('z', rz), mat3Mul(makeRotMatrix('y', ry), makeRotMatrix('x', rx)));
-                        if (mat3Eq(test, M)) return { x: rx, y: ry, z: rz };
+                        if (mat3Eq(test, M)) {
+                            const nonZero = (rx !== 0 ? 1 : 0) + (ry !== 0 ? 1 : 0) + (rz !== 0 ? 1 : 0);
+                            if (nonZero < bestNonZero) {
+                                best = { x: rx, y: ry, z: rz };
+                                bestNonZero = nonZero;
+                                if (nonZero <= 1) return best; // can't do better than single-axis
+                            }
+                        }
                     }
-            return { x: 0, y: 0, z: 0 };
+            return best || { x: 0, y: 0, z: 0 };
         }
         // Determine which original thumbnail + CSS transform for each view slot
         function computeViewMapping(R) {

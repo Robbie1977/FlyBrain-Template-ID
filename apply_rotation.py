@@ -19,6 +19,7 @@ import sys
 import json
 import os
 import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import nrrd
 from pathlib import Path
@@ -115,14 +116,18 @@ def main():
         print("  Run convert_tiff_to_nrrd.py first to create them.")
         sys.exit(1)
 
-    # Rotate both channel files
+    # Rotate both channel files in parallel
     print(f"Rotating {image_base} by {rotations}")
 
-    shape, sd = rotate_nrrd(signal_path, rotations)
-    print(f"  Signal:     shape={shape}  space_dirs={sd}")
-
-    shape, sd = rotate_nrrd(bg_path, rotations)
-    print(f"  Background: shape={shape}  space_dirs={sd}")
+    with ProcessPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(rotate_nrrd, signal_path, rotations): "Signal",
+            executor.submit(rotate_nrrd, bg_path, rotations): "Background",
+        }
+        for future in as_completed(futures):
+            label = futures[future]
+            shape, sd = future.result()
+            print(f"  {label:12s} shape={shape}  space_dirs={sd}")
 
     print("Rotation applied successfully")
 
