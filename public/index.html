@@ -631,9 +631,9 @@
                 if (m === k && n === l) {
                     flipV = mSign < 0; flipH = nSign < 0;
                 } else if (m === l && n === k) {
-                    cssRot = 90;
-                    flipH = nSign > 0; // after 90° CW: screen_right = -old_k
-                    flipV = mSign < 0; // after 90° CW: screen_down = +old_l
+                    cssRot = -90; // CCW to match np.rot90 k=1 direction
+                    flipH = nSign < 0; // after CCW 90°: screen_right = +old_k
+                    flipV = mSign > 0; // after CCW 90°: screen_down = -old_l
                 }
                 mapping.push({ sourceKey, cssRot, flipH, flipV });
             }
