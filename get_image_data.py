@@ -359,6 +359,16 @@ def main():
             vz = float(np.linalg.norm(sd[2]))  # Z spacing
             sample_vox = [vx, vy, vz]  # [X, Y, Z] matching data axes
 
+            # Determine which array axis corresponds to anatomical X, Y, Z
+            proj_axis_for_anatomical = {}
+            for i in range(3):
+                if abs(sd[i][0]) > 1e-6:
+                    proj_axis_for_anatomical['x'] = i
+                if abs(sd[i][1]) > 1e-6:
+                    proj_axis_for_anatomical['y'] = i
+                if abs(sd[i][2]) > 1e-6:
+                    proj_axis_for_anatomical['z'] = i
+
             sig_data = sig_data_raw
             loaded_from_nrrd = True
 
@@ -454,6 +464,12 @@ def main():
     # --- From here, bg_data and sig_data are always [X, Y, Z] ---
     # --- sample_vox is [vx, vy, vz] matching axes ---
 
+    if loaded_from_nrrd:
+        # proj_axis_for_anatomical already set above
+        pass
+    else:
+        proj_axis_for_anatomical = {'x': 0, 'y': 1, 'z': 2}
+
     # Determine template
     template_key = manual_corrections.get('template')
     if not template_key:
@@ -468,6 +484,9 @@ def main():
 
     # Analyze background channel
     sample_proj_2d, sample_proj_1d, sample_peaks = analyze_projections(bg_data, sample_vox)
+
+    # Reorder projections to match anatomical axes
+    sample_proj_2d = [sample_proj_2d[proj_axis_for_anatomical[key]] for key in ['x', 'y', 'z']]
 
     # Analyze template
     template_proj_2d = None
@@ -492,7 +511,7 @@ def main():
     # axis 2 projection (along Z) → axial/dorsal view → label 'z'
     original_thumbnails = {}
     for i, key in enumerate(['x', 'y', 'z']):
-        original_thumbnails[key] = generate_thumbnail(sample_proj_2d[i], sample_vox, i)
+        original_thumbnails[key] = generate_thumbnail(sample_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])
 
     template_thumbnails = {}
     if template_proj_2d is not None:
@@ -502,8 +521,9 @@ def main():
     signal_thumbnails = {}
     if sig_data is not None:
         sig_proj_2d, _, _ = analyze_projections(sig_data, sample_vox)
+        sig_proj_2d = [sig_proj_2d[proj_axis_for_anatomical[key]] for key in ['x', 'y', 'z']]
         for i, key in enumerate(['x', 'y', 'z']):
-            signal_thumbnails[key] = generate_thumbnail(sig_proj_2d[i], sample_vox, i)
+            signal_thumbnails[key] = generate_thumbnail(sig_proj_2d[i], sample_vox, proj_axis_for_anatomical[key])
 
     # Generate histograms
     histogram = generate_histogram(
