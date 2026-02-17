@@ -593,18 +593,19 @@
             return mats[axis][k] || [[1,0,0],[0,1,0],[0,0,1]];
         }
         // Decompose rotation matrix into (rx, ry, rz) Euler angles matching apply_rotation.py order: X then Y then Z.
-        // Prefers the decomposition with smallest sum of absolute degrees.
+        // Prefers the simplest decomposition (fewest non-zero axes).
         function matrixToAngles(M) {
-            let best = null, bestSum = Infinity;
+            let best = null, bestNonZero = 4;
             for (let rx of [0, 90, 180, 270])
                 for (let ry of [0, 90, 180, 270])
                     for (let rz of [0, 90, 180, 270]) {
                         const test = mat3Mul(makeRotMatrix('z', rz), mat3Mul(makeRotMatrix('y', ry), makeRotMatrix('x', rx)));
                         if (mat3Eq(test, M)) {
-                            const sum = Math.abs(rx) + Math.abs(ry) + Math.abs(rz);
-                            if (sum < bestSum) {
+                            const nonZero = (rx !== 0 ? 1 : 0) + (ry !== 0 ? 1 : 0) + (rz !== 0 ? 1 : 0);
+                            if (nonZero < bestNonZero) {
                                 best = { x: rx, y: ry, z: rz };
-                                bestSum = sum;
+                                bestNonZero = nonZero;
+                                if (nonZero <= 1) return best; // can't do better than single-axis
                             }
                         }
                     }
@@ -689,24 +690,30 @@
             const applyBtn = $('apply-rotation');
             if (applyBtn) applyBtn.disabled = isIdentity;
             if (!originalThumbnails.x) return;
+            const mapping = computeViewMapping(previewMatrix);
             const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
-            const inPlaneAxis = ['z', 'y', 'x'];
-            const keys = ['x', 'y', 'z'];
+            const origLabels = { x: 'Dorsal', y: 'Lateral', z: 'Anterior' };
             for (let i = 0; i < 3; i++) {
                 const img = document.getElementById(`preview-sample-${i}`);
                 if (!img) continue;
-                const imgData = originalThumbnails[keys[i]];
+                const m = mapping[i];
+                const imgData = originalThumbnails[m.sourceKey];
                 if (imgData) img.src = `data:image/png;base64,${imgData}`;
-                const axis = inPlaneAxis[i];
-                const rot = angles[axis];
                 const transforms = [];
-                if (rot !== 0) transforms.push(`rotate(${rot}deg)`);
+                if (m.flipH) transforms.push('scaleX(-1)');
+                if (m.flipV) transforms.push('scaleY(-1)');
+                if (m.cssRot !== 0) transforms.push(`rotate(${m.cssRot}deg)`);
                 img.style.transform = transforms.length ? transforms.join(' ') : 'none';
-                // Update label
+                // Update label if view source changed
                 const labelEl = document.getElementById(`view-label-${i}`);
                 if (labelEl) {
-                    labelEl.textContent = viewLabels[i];
-                    labelEl.classList.remove('view-label-highlight');
+                    if (m.sourceKey === ['x','y','z'][i]) {
+                        labelEl.textContent = viewLabels[i];
+                        labelEl.classList.remove('view-label-highlight');
+                    } else {
+                        labelEl.textContent = `${viewLabels[i]} \u2190 was ${origLabels[m.sourceKey]}`;
+                        labelEl.classList.add('view-label-highlight');
+                    }
                 }
             }
         }
@@ -1174,22 +1181,7 @@
                         if (pair[0]===0 && pair[1]===1) axis = 'x';
                         else if (pair[0]===0 && pair[1]===2) axis = 'y';
                         else axis = 'z';
-                        // Apply the rotation
                         applyPreviewRotation(axis, 90);
-                        // Also swap the thumbnails for the two views being swapped
-                        const imgFrom = document.getElementById(`preview-sample-${from}`);
-                        const imgTo = document.getElementById(`preview-sample-${to}`);
-                        const tempSrc = imgFrom.src;
-                        imgFrom.src = imgTo.src;
-                        imgTo.src = tempSrc;
-                        // Update labels to indicate the swap
-                        const labelFrom = document.getElementById(`view-label-${from}`);
-                        const labelTo = document.getElementById(`view-label-${to}`);
-                        const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
-                        labelFrom.textContent = `${viewLabels[from]} ↔ ${viewLabels[to]}`;
-                        labelTo.textContent = `${viewLabels[to]} ↔ ${viewLabels[from]}`;
-                        labelFrom.classList.add('view-label-highlight');
-                        labelTo.classList.add('view-label-highlight');
                         this.value = '';
                     });
                     controls.appendChild(swapSelect);
