@@ -761,7 +761,9 @@
                 // Update label if view source changed
                 const labelEl = document.getElementById(`view-label-${i}`);
                 if (labelEl) {
-                    if (m.sourceKey === ['x','y','z'][i]) {
+                    // Default source for each view: view 0 (Dorsal) → 'z', view 1 (Lateral) → 'y', view 2 (Anterior) → 'x'
+                    const defaultKey = ['z','y','x'][i];
+                    if (m.sourceKey === defaultKey) {
                         labelEl.textContent = viewLabels[i];
                         labelEl.classList.remove('view-label-highlight');
                     } else {
