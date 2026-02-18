@@ -206,12 +206,37 @@ def check_orientation(sample_peaks, sample_proj_1d, template_key, template_info)
             if x_asymmetry > 0.3:
                 changes.append("X-axis highly asymmetric - possible 90\u00b0 rotation needed")
 
+    # Z-axis (Dorsal-Ventral) mismatch: compare profile shape with template.
+    # The brain has a distinct D-V profile; if flipped, cross-correlation with
+    # the reversed template profile will be higher than with the normal one.
+    if template_key.startswith('JRC2018U') and template_proj_1d is not None:
+        z_sample = sample_proj_1d[2]['filtered']
+        z_template = template_proj_1d[2]['filtered']
+        if len(z_sample) > 10 and len(z_template) > 10:
+            # Resample to common length for comparison
+            common_len = min(len(z_sample), len(z_template))
+            zs = np.interp(np.linspace(0, 1, common_len),
+                           np.linspace(0, 1, len(z_sample)), z_sample)
+            zt = np.interp(np.linspace(0, 1, common_len),
+                           np.linspace(0, 1, len(z_template)), z_template)
+            # Normalize
+            zs_n = zs - np.mean(zs)
+            zt_n = zt - np.mean(zt)
+            denom = np.linalg.norm(zs_n) * np.linalg.norm(zt_n)
+            if denom > 0:
+                corr_normal = np.dot(zs_n, zt_n) / denom
+                corr_flipped = np.dot(zs_n, zt_n[::-1]) / denom
+                if corr_flipped > corr_normal + 0.2:
+                    changes.append("Z-axis (dorsal-ventral) profile appears flipped vs template - 180\u00b0 X-axis rotation suggested")
+
     suggested_rotations = {'x': 0, 'y': 0, 'z': 0}
     for change in changes:
         if "180\u00b0 Y-axis" in change:
             suggested_rotations['y'] = 180
         if "90\u00b0 rotation" in change:
             suggested_rotations['z'] = 90
+        if "180\u00b0 X-axis" in change:
+            suggested_rotations['x'] = 180
 
     orientation_correct = len(changes) == 0
     return orientation_correct, changes, suggested_rotations

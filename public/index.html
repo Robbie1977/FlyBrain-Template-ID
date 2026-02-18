@@ -404,12 +404,12 @@
                 <div class="rotation-toolbar">
                     <div class="rot-toolbar-group">
                         <span class="rot-group-label">3D Rotation:</span>
-                        <button class="rot-btn" onclick="applyPreviewRotation('x', 90)" title="X +90°: Swap Lateral ↔ Anterior">X +90°</button>
-                        <button class="rot-btn" onclick="applyPreviewRotation('x', 270)" title="X -90°: Swap Lateral ↔ Anterior (reverse)">X -90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('x', 90)" title="X +90°: Swap Lateral ↔ Dorsal">X +90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('x', 270)" title="X -90°: Swap Lateral ↔ Dorsal (reverse)">X -90°</button>
                         <button class="rot-btn" onclick="applyPreviewRotation('y', 90)" title="Y +90°: Swap Dorsal ↔ Anterior">Y +90°</button>
                         <button class="rot-btn" onclick="applyPreviewRotation('y', 270)" title="Y -90°: Swap Dorsal ↔ Anterior (reverse)">Y -90°</button>
-                        <button class="rot-btn" onclick="applyPreviewRotation('z', 90)" title="Z +90°: Swap Dorsal ↔ Lateral">Z +90°</button>
-                        <button class="rot-btn" onclick="applyPreviewRotation('z', 270)" title="Z -90°: Swap Dorsal ↔ Lateral (reverse)">Z -90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('z', 90)" title="Z +90°: Swap Anterior ↔ Lateral">Z +90°</button>
+                        <button class="rot-btn" onclick="applyPreviewRotation('z', 270)" title="Z -90°: Swap Anterior ↔ Lateral (reverse)">Z -90°</button>
                     </div>
                     <div class="rot-toolbar-group">
                         <button class="rot-btn rot-btn-reset" onclick="resetPreview()">&#x27F2; Reset</button>
@@ -746,7 +746,7 @@
             if (!originalThumbnails.x) return;
             const mapping = computeViewMapping(previewIndexMatrix);
             const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
-            const origLabels = { x: 'Dorsal', y: 'Lateral', z: 'Anterior' };
+            const origLabels = { x: 'Anterior', y: 'Lateral', z: 'Dorsal' };
             for (let i = 0; i < 3; i++) {
                 const img = document.getElementById(`preview-sample-${i}`);
                 if (!img) continue;
@@ -761,8 +761,8 @@
                 // Update label if view source changed
                 const labelEl = document.getElementById(`view-label-${i}`);
                 if (labelEl) {
-                    // Default source for each view: view 0 (Dorsal) → 'x', view 1 (Lateral) → 'y', view 2 (Anterior) → 'z'
-                    const defaultKey = ['x','y','z'][i];
+                    // Default source for each view: view 0 (Dorsal) → 'z', view 1 (Lateral) → 'y', view 2 (Anterior) → 'x'
+                    const defaultKey = ['z','y','x'][i];
                     if (m.sourceKey === defaultKey) {
                         labelEl.textContent = viewLabels[i];
                         labelEl.classList.remove('view-label-highlight');
@@ -1167,8 +1167,15 @@
 
             const axisLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
             const viewNames = ['Dorsal', 'Lateral', 'Anterior'];
-            const keys = ['x', 'y', 'z'];
-            // In-plane rotation axis per view (the axis that keeps the projection axis invariant)
+            // Thumbnail key per view slot:
+            //   slot 0 (Dorsal)   projects along axis 2 → key 'z' = np.max(data, axis=2) = X-Y plane
+            //   slot 1 (Lateral)  projects along axis 1 → key 'y' = np.max(data, axis=1) = X-Z plane
+            //   slot 2 (Anterior) projects along axis 0 → key 'x' = np.max(data, axis=0) = Y-Z plane
+            const keys = ['z', 'y', 'x'];
+            // In-plane rotation axis per view (the axis perpendicular to the view plane):
+            //   Dorsal(0):   projects along Z → rotate around Z
+            //   Lateral(1):  projects along Y → rotate around Y
+            //   Anterior(2): projects along X → rotate around X
             const inPlaneAxis = ['z', 'y', 'x'];
 
             keys.forEach((key, i) => {
@@ -1234,13 +1241,14 @@
                         const [from, to] = this.value.split('-').map(Number);
                         const pair = [from, to].sort();
                         let axis;
-                        // Rotation axis that swaps the two views:
-                        // Z rotation (axes 0,1): swaps Dorsal(0) ↔ Lateral(1)
-                        // Y rotation (axes 0,2): swaps Dorsal(0) ↔ Anterior(2)
-                        // X rotation (axes 1,2): swaps Lateral(1) ↔ Anterior(2)
-                        if (pair[0]===0 && pair[1]===1) axis = 'z';
+                        // Rotation axis that swaps the two view projections:
+                        // Dorsal(0) projects along Z, Lateral(1) along Y, Anterior(2) along X
+                        // X rotation (axes 1,2 → Y,Z): swaps Dorsal(0) ↔ Lateral(1)
+                        // Y rotation (axes 0,2 → X,Z): swaps Dorsal(0) ↔ Anterior(2)
+                        // Z rotation (axes 0,1 → X,Y): swaps Lateral(1) ↔ Anterior(2)
+                        if (pair[0]===0 && pair[1]===1) axis = 'x';
                         else if (pair[0]===0 && pair[1]===2) axis = 'y';
-                        else axis = 'x';
+                        else axis = 'z';
                         applyPreviewRotation(axis, 90);
                         this.value = '';
                     });
@@ -1277,7 +1285,8 @@
 
             card.style.display = 'block';
             const axisLabels = ['X-Y (Dorsal)', 'X-Z (Lateral)', 'Y-Z (Anterior)'];
-            const keys = ['x', 'y', 'z'];
+            // Same key ordering as background thumbnails: slot 0→'z' (Dorsal), 1→'y' (Lateral), 2→'x' (Anterior)
+            const keys = ['z', 'y', 'x'];
 
             keys.forEach((key, i) => {
                 if (data.signal_thumbnails[key]) {
