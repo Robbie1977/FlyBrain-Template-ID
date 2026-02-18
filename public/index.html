@@ -557,6 +557,7 @@
         let currentFilter = 'all';
         let currentBgChannel = 1;
         let previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
+        let previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]]; // index-space version of previewMatrix
         let originalThumbnails = {};
         let suppressSuggestions = false;
 
@@ -576,6 +577,30 @@
                 for (let j = 0; j < 3; j++)
                     if (Math.round(A[i][j]) !== Math.round(B[i][j])) return false;
             return true;
+        }
+        function mat3T(A) {
+            return [[A[0][0],A[1][0],A[2][0]],[A[0][1],A[1][1],A[2][1]],[A[0][2],A[1][2],A[2][2]]];
+        }
+        // Build the index-space matrix for a sequence of Euler rotations (X then Y then Z).
+        //
+        // IMPORTANT: np.rot90(data, k=1, axes=(a1,a2)) maps array indices differently
+        // from the coordinate-space rotation matrix R:
+        //   - R says new_coord_a1 = +old_coord_a2, new_coord_a2 = -old_coord_a1
+        //   - But np.rot90 gives: new_index_a1 ← REVERSED old_index_a2,
+        //                         new_index_a2 ← SAME old_index_a1
+        // The off-diagonal signs in the rotation plane are NEGATED compared to R.
+        // This means: index-space matrix for a single rotation = R^T (transpose of R).
+        //
+        // For compound rotations, index matrices compose by left-multiplication
+        // (same as coordinate matrices), but each individual factor is transposed.
+        // We CANNOT just transpose the compound coordinate matrix — that gives the
+        // wrong composition order.
+        function buildIndexMatrix(rx, ry, rz) {
+            let I = [[1,0,0],[0,1,0],[0,0,1]];
+            if (rx) I = mat3Mul(mat3T(makeRotMatrix('x', rx)), I);
+            if (ry) I = mat3Mul(mat3T(makeRotMatrix('y', ry)), I);
+            if (rz) I = mat3Mul(mat3T(makeRotMatrix('z', rz)), I);
+            return I;
         }
         // Build rotation matrix matching apply_rotation.py np.rot90 convention:
         // np.rot90(data, k=1, axes=(a,b)) rotates axis a toward axis b.
@@ -621,18 +646,20 @@
         //                 'y' = np.max(data, axis=1) → [X,Z]
         //                 'z' = np.max(data, axis=2) → [X,Y]
         //
-        // R is the cumulative rotation matrix: new_coord = R · old_coord
-        // R[new_axis][old_axis] gives the coefficient.
-        function computeViewMapping(R) {
+        // I is the INDEX-SPACE matrix (not the coordinate-space rotation matrix).
+        // np.rot90 reverses the off-diagonal signs of the rotation sub-matrix
+        // compared to the coordinate matrix, so I = product of R_i^T for each
+        // successive single-axis rotation R_i.
+        function computeViewMapping(I) {
             const keys = ['x', 'y', 'z'];
             // Map view slot index to the world axis it projects along
             const slotAxis = [2, 1, 0]; // slot 0→axis 2, slot 1→axis 1, slot 2→axis 0
             const mapping = [];
             for (let i = 0; i < 3; i++) {
                 const si = slotAxis[i]; // new-space axis this view projects along
-                // Find which old axis maps to si: R[si][j] != 0
+                // Find which old axis maps to si: I[si][j] != 0
                 let j = -1;
-                for (let c = 0; c < 3; c++) { if (R[si][c] !== 0) { j = c; break; } }
+                for (let c = 0; c < 3; c++) { if (I[si][c] !== 0) { j = c; break; } }
                 const sourceKey = keys[j];
                 // Source thumbnail's in-plane axes (row, col) — sorted ascending
                 const oldRem = [0,1,2].filter(x => x !== j);
@@ -640,12 +667,12 @@
                 // Display slot's in-plane axes — sorted ascending
                 const newRem = [0,1,2].filter(x => x !== si);
                 const p = newRem[0], q = newRem[1]; // p=row(vert), q=col(horiz)
-                // Which old axis maps to display row p? R[p][m] = mSign
+                // Which old axis maps to display row p? I[p][m] = mSign
                 let m = -1, mSign = 0;
-                for (let c = 0; c < 3; c++) { if (R[p][c] !== 0) { m = c; mSign = R[p][c]; break; } }
-                // Which old axis maps to display col q? R[q][n] = nSign
+                for (let c = 0; c < 3; c++) { if (I[p][c] !== 0) { m = c; mSign = I[p][c]; break; } }
+                // Which old axis maps to display col q? I[q][n] = nSign
                 let n = -1, nSign = 0;
-                for (let c = 0; c < 3; c++) { if (R[q][c] !== 0) { n = c; nSign = R[q][c]; break; } }
+                for (let c = 0; c < 3; c++) { if (I[q][c] !== 0) { n = c; nSign = I[q][c]; break; } }
                 let cssRot = 0, flipH = false, flipV = false;
                 if (m === k && n === l) {
                     // Same axis order: no CSS rotation needed, just flips
@@ -666,10 +693,12 @@
         function applyPreviewRotation(axis, degrees) {
             const R = makeRotMatrix(axis, degrees);
             previewMatrix = mat3Mul(R, previewMatrix);
+            previewIndexMatrix = mat3Mul(mat3T(R), previewIndexMatrix);
             updateRotationPreview();
         }
         function resetPreview() {
             previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
+            previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]];
             updateRotationPreview();
         }
         function syncPreviewFromDropdowns() {
@@ -677,6 +706,7 @@
             const ry = parseInt($('rot-y').value) || 0;
             const rz = parseInt($('rot-z').value) || 0;
             previewMatrix = mat3Mul(makeRotMatrix('z', rz), mat3Mul(makeRotMatrix('y', ry), makeRotMatrix('x', rx)));
+            previewIndexMatrix = buildIndexMatrix(rx, ry, rz);
             updateRotationPreview();
         }
         function updateRotationPreview() {
@@ -714,7 +744,7 @@
             const applyBtn = $('apply-rotation');
             if (applyBtn) applyBtn.disabled = isIdentity;
             if (!originalThumbnails.x) return;
-            const mapping = computeViewMapping(previewMatrix);
+            const mapping = computeViewMapping(previewIndexMatrix);
             const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
             const origLabels = { x: 'Dorsal', y: 'Lateral', z: 'Anterior' };
             for (let i = 0; i < 3; i++) {
@@ -1276,6 +1306,7 @@
             } else if (hasSuggested) {
                 // Apply suggested rotation to preview matrix
                 previewMatrix = mat3Mul(makeRotMatrix('z', sr.z), mat3Mul(makeRotMatrix('y', sr.y), makeRotMatrix('x', sr.x)));
+                previewIndexMatrix = buildIndexMatrix(sr.x, sr.y, sr.z);
                 updateRotationPreview();
             }
             // Disable Apply Suggested if no rotations needed
@@ -1344,6 +1375,7 @@
             if (!imageData || !imageData.suggested_rotations) return;
             const sr = imageData.suggested_rotations;
             previewMatrix = mat3Mul(makeRotMatrix('z', sr.z), mat3Mul(makeRotMatrix('y', sr.y), makeRotMatrix('x', sr.x)));
+            previewIndexMatrix = buildIndexMatrix(sr.x, sr.y, sr.z);
             updateRotationPreview();
         });
 
@@ -1383,6 +1415,7 @@
                 $('rot-y').value = 0;
                 $('rot-z').value = 0;
                 previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
+                previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]];
                 suppressSuggestions = true;
                 loadImage(currentImage, currentBgChannel);
             })
