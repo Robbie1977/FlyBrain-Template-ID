@@ -108,7 +108,10 @@ def load_template(template_key):
         return None
 
     data, header = nrrd.read(str(template_file))
-    vox_sizes = [abs(header['space directions'][i][i]) for i in range(3)]
+    # Extract voxel sizes from space directions using norm of each row
+    # (consistent with sample NRRD extraction; handles rotations with off-diagonal entries)
+    sd = np.array(header['space directions'], dtype=float)
+    vox_sizes = [float(np.linalg.norm(sd[i])) for i in range(3)]
 
     _template_cache[template_key] = {
         'data': data,
