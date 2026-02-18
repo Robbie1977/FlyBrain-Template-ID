@@ -69,9 +69,15 @@ def rotate_nrrd(nrrd_path, rotations):
         axes = axis_map[axis_name]
         data = np.rot90(data, k=k, axes=axes)
 
-        # For 90° or 270° (odd k): axes are swapped → swap space directions
+        # For 90° or 270° (odd k): axes are swapped
+        # Properly reconstruct space directions with voxel sizes in correct diagonal positions
         if k % 2 == 1:
-            sd[axes[0]], sd[axes[1]] = sd[axes[1]].copy(), sd[axes[0]].copy()
+            # Extract voxel sizes (magnitude of each axis direction, handling any previous rotations)
+            vox = [np.linalg.norm(sd[i]) for i in range(3)]
+            # Swap the voxel sizes for the affected axes
+            vox[axes[0]], vox[axes[1]] = vox[axes[1]], vox[axes[0]]
+            # Reconstruct diagonal space directions matrix with voxel sizes in correct positions
+            sd = np.diag(vox)
         # For 180°: axes stay in place, space directions unchanged
 
     # Update header
