@@ -559,6 +559,7 @@
         let previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
         let previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]]; // index-space version of previewMatrix
         let originalThumbnails = {};
+        let rotationHistory = []; // tracks each applied rotation step for display
         let suppressSuggestions = false;
 
         const $ = (id) => document.getElementById(id);
@@ -690,15 +691,17 @@
             }
             return mapping;
         }
-        function applyPreviewRotation(axis, degrees) {
+        function applyPreviewRotation(axis, degrees, viewLabel) {
             const R = makeRotMatrix(axis, degrees);
             previewMatrix = mat3Mul(R, previewMatrix);
             previewIndexMatrix = mat3Mul(mat3T(R), previewIndexMatrix);
+            rotationHistory.push({ axis: axis.toUpperCase(), degrees, viewLabel: viewLabel || null });
             updateRotationPreview();
         }
         function resetPreview() {
             previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
             previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]];
+            rotationHistory = [];
             updateRotationPreview();
         }
         function syncPreviewFromDropdowns() {
@@ -707,6 +710,7 @@
             const rz = parseInt($('rot-z').value) || 0;
             previewMatrix = mat3Mul(makeRotMatrix('z', rz), mat3Mul(makeRotMatrix('y', ry), makeRotMatrix('x', rx)));
             previewIndexMatrix = buildIndexMatrix(rx, ry, rz);
+            rotationHistory = []; // manual dropdown edit resets step history
             updateRotationPreview();
         }
         function updateRotationPreview() {
@@ -721,7 +725,15 @@
                     statusEl.innerHTML = 'Preview: no rotation &mdash; orientation matches current data';
                     statusEl.className = 'rotation-preview-info identity';
                 } else {
-                    statusEl.innerHTML = `Preview rotation: X=${angles.x}&deg; Y=${angles.y}&deg; Z=${angles.z}&deg; &mdash; click "Apply Rotation" to make permanent`;
+                    let historyHtml = '';
+                    if (rotationHistory.length > 1) {
+                        const steps = rotationHistory.map(h => {
+                            const label = h.viewLabel ? `${h.viewLabel}: ` : '';
+                            return `${label}${h.axis}=${h.degrees}\u00b0`;
+                        }).join(' \u2192 ');
+                        historyHtml = `<br><span style="font-size:11px;opacity:0.8;">Steps: ${steps} &rarr; combined as X=${angles.x}&deg; Y=${angles.y}&deg; Z=${angles.z}&deg;</span>`;
+                    }
+                    statusEl.innerHTML = `Preview rotation: X=${angles.x}&deg; Y=${angles.y}&deg; Z=${angles.z}&deg; &mdash; click "Apply Rotation" to make permanent${historyHtml}`;
                     statusEl.className = 'rotation-preview-info';
                 }
             }
@@ -1213,13 +1225,13 @@
                     const rotateCW = document.createElement('button');
                     rotateCW.textContent = '\u21BB Rotate CW';
                     rotateCW.title = 'Rotate in-plane clockwise';
-                    rotateCW.addEventListener('click', () => applyPreviewRotation(inPlaneAxis[i], 90));
+                    rotateCW.addEventListener('click', () => applyPreviewRotation(inPlaneAxis[i], 90, viewNames[i]));
                     controls.appendChild(rotateCW);
 
                     const rotateCCW = document.createElement('button');
                     rotateCCW.textContent = '\u21BA Rotate CCW';
                     rotateCCW.title = 'Rotate in-plane counter-clockwise';
-                    rotateCCW.addEventListener('click', () => applyPreviewRotation(inPlaneAxis[i], 270));
+                    rotateCCW.addEventListener('click', () => applyPreviewRotation(inPlaneAxis[i], 270, viewNames[i]));
                     controls.appendChild(rotateCCW);
 
                     // Swap dropdown
@@ -1427,6 +1439,7 @@
                 $('rot-z').value = 0;
                 previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
                 previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]];
+                rotationHistory = [];
                 suppressSuggestions = true;
                 loadImage(currentImage, currentBgChannel);
             })
