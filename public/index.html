@@ -1079,9 +1079,17 @@
             const mc = saved.manual_corrections;
             $('template-select').value = mc.template;
             $('template-correct').checked = mc.template_correct;
-            $('rot-x').value = mc.rotations.x || 0;
-            $('rot-y').value = mc.rotations.y || 0;
-            $('rot-z').value = mc.rotations.z || 0;
+            // Only override the rotation dropdowns if there is an explicit saved pending
+            // rotation.  When all zeros (e.g. after Apply Rotation bakes the rotation into
+            // the NRRD), leave the dropdowns untouched so that any suggestion-driven preview
+            // values already set by renderCorrections → updateRotationPreview are preserved.
+            const hasSavedRotation = mc.rotations.x || mc.rotations.y || mc.rotations.z;
+            if (hasSavedRotation) {
+                $('rot-x').value = mc.rotations.x || 0;
+                $('rot-y').value = mc.rotations.y || 0;
+                $('rot-z').value = mc.rotations.z || 0;
+                syncPreviewFromDropdowns();
+            }
             // renderApproval() handles button state based on pipeline status
         }
 
@@ -1407,47 +1415,54 @@
             $(id).addEventListener('change', syncPreviewFromDropdowns);
         });
 
-        $('apply-rotation').addEventListener('click', () => {
-            const rotations = {
-                x: parseInt($('rot-x').value),
-                y: parseInt($('rot-y').value),
-                z: parseInt($('rot-z').value)
-            };
-
-            if (rotations.x === 0 && rotations.y === 0 && rotations.z === 0) {
-                alert('No rotation specified.');
-                return;
+        $('apply-rotation').addEventListener('click', async () => {
+            // Build ordered rotation steps from button-click history (preferred) so that
+            // the exact axis/order the user applied is sent to apply_rotation.py rather
+            // than a reordered canonical Euler decomposition.  Falls back to the dropdown
+            // values when the user set the rotation manually without using the buttons.
+            let steps;
+            if (rotationHistory.length > 0) {
+                steps = rotationHistory.map(h => ({
+                    x: h.axis === 'X' ? h.degrees : 0,
+                    y: h.axis === 'Y' ? h.degrees : 0,
+                    z: h.axis === 'Z' ? h.degrees : 0,
+                }));
+            } else {
+                const rx = parseInt($('rot-x').value) || 0;
+                const ry = parseInt($('rot-y').value) || 0;
+                const rz = parseInt($('rot-z').value) || 0;
+                if (!rx && !ry && !rz) {
+                    alert('No rotation specified.');
+                    return;
+                }
+                steps = [{ x: rx, y: ry, z: rz }];
             }
 
             $('apply-rotation').disabled = true;
             $('apply-rotation').textContent = 'Applying...';
 
-            fetch(`/api/rotate?name=${encodeURIComponent(currentImage)}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rotations })
-            })
-            .then(r => {
-                if (!r.ok) throw new Error('Server returned ' + r.status);
-                return r.json();
-            })
-            .then(() => {
+            try {
+                for (const rotations of steps) {
+                    const r = await fetch(`/api/rotate?name=${encodeURIComponent(currentImage)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ rotations })
+                    });
+                    if (!r.ok) throw new Error('Server returned ' + r.status);
+                }
                 $('apply-rotation').disabled = false;
                 $('apply-rotation').textContent = 'Apply Rotation';
-                $('rot-x').value = 0;
-                $('rot-y').value = 0;
-                $('rot-z').value = 0;
+                rotationHistory = [];
                 previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
                 previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]];
-                rotationHistory = [];
-                suppressSuggestions = true;
+                // Do NOT set suppressSuggestions — let renderCorrections show any new
+                // suggestions from the freshly-analysed rotated NRRD automatically.
                 loadImage(currentImage, currentBgChannel);
-            })
-            .catch(() => {
+            } catch {
                 $('apply-rotation').disabled = false;
                 $('apply-rotation').textContent = 'Apply Rotation';
                 alert('Failed to apply rotation.');
-            });
+            }
         });
 
         $('reset-rotation').addEventListener('click', () => {
