@@ -719,9 +719,14 @@
             $('rot-y').value = angles.y;
             $('rot-z').value = angles.z;
             const isIdentity = angles.x === 0 && angles.y === 0 && angles.z === 0;
+            // hasPending: true if there is anything to send to the backend.
+            // rotationHistory may contain steps that compose to identity (e.g. Z+90 then
+            // Z-90), so we cannot rely on isIdentity alone — the steps still need to be
+            // sent in order.
+            const hasPending = rotationHistory.length > 0 || !isIdentity;
             const statusEl = $('preview-status');
             if (statusEl) {
-                if (isIdentity) {
+                if (!hasPending) {
                     statusEl.innerHTML = 'Preview: no rotation &mdash; orientation matches current data';
                     statusEl.className = 'rotation-preview-info identity';
                 } else {
@@ -731,7 +736,10 @@
                             const label = h.viewLabel ? `${h.viewLabel}: ` : '';
                             return `${label}${h.axis}=${h.degrees}\u00b0`;
                         }).join(' \u2192 ');
-                        historyHtml = `<br><span style="font-size:11px;opacity:0.8;">Steps: ${steps} &rarr; combined as X=${angles.x}&deg; Y=${angles.y}&deg; Z=${angles.z}&deg;</span>`;
+                        const suffix = isIdentity
+                            ? '(net: no change — steps will still be applied in sequence)'
+                            : `combined as X=${angles.x}&deg; Y=${angles.y}&deg; Z=${angles.z}&deg;`;
+                        historyHtml = `<br><span style="font-size:11px;opacity:0.8;">Steps: ${steps} &rarr; ${suffix}</span>`;
                     }
                     statusEl.innerHTML = `Preview rotation: X=${angles.x}&deg; Y=${angles.y}&deg; Z=${angles.z}&deg; &mdash; click "Apply Rotation" to make permanent${historyHtml}`;
                     statusEl.className = 'rotation-preview-info';
@@ -740,7 +748,7 @@
             const statusBadge = $('rotation-status');
             const summaryDiv = $('rotation-summary');
             if (statusBadge && summaryDiv) {
-                if (!isIdentity) {
+                if (hasPending) {
                     statusBadge.textContent = 'Preview Active';
                     statusBadge.className = 'badge badge-warn';
                     statusBadge.style.display = 'inline-block';
@@ -752,9 +760,11 @@
                     summaryDiv.textContent = 'No rotations pending';
                 }
             }
-            // Enable/disable Apply Rotation based on preview
+            // Enable Apply Rotation whenever there is anything to send — either steps in
+            // history (which may compose to identity but are still sent in order) or a
+            // non-identity canonical matrix (from manual dropdown entry).
             const applyBtn = $('apply-rotation');
-            if (applyBtn) applyBtn.disabled = isIdentity;
+            if (applyBtn) applyBtn.disabled = !hasPending;
             if (!originalThumbnails.x) return;
             const mapping = computeViewMapping(previewIndexMatrix);
             const viewLabels = ['X-Y (Dorsal View)', 'X-Z (Lateral View)', 'Y-Z (Anterior View)'];
