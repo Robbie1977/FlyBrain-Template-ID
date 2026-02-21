@@ -633,7 +633,6 @@
         let previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]]; // index-space version of previewMatrix
         let originalThumbnails = {};
         let rotationHistory = []; // tracks each applied rotation step for display
-        let suppressSuggestions = false;
         // Axis flip toggle state — tracks which global axes (X/Y/Z) the user has toggled for
         // a paired flip.  A single axis flip is a reflection (det=−1, not a valid rotation);
         // exactly 2 must be selected before Apply Flips becomes available.
@@ -1616,16 +1615,8 @@
         function renderCorrections(data) {
             const sr = data.suggested_rotations || { x: 0, y: 0, z: 0 };
             const hasSuggested = sr.x !== 0 || sr.y !== 0 || sr.z !== 0;
-            // After Apply Rotation, show the new image without auto-applying new suggestions
-            if (suppressSuggestions) {
-                suppressSuggestions = false;
-            } else if (hasSuggested) {
-                // Apply suggested rotation to preview matrix
-                previewMatrix = mat3Mul(makeRotMatrix('z', sr.z), mat3Mul(makeRotMatrix('y', sr.y), makeRotMatrix('x', sr.x)));
-                previewIndexMatrix = buildIndexMatrix(sr.x, sr.y, sr.z);
-                updateRotationPreview();
-            }
-            // Disable Apply Suggested if no rotations needed
+            // Never auto-apply suggestions — only enable/disable the "Apply Suggested" button.
+            // The user must explicitly click "Apply Suggested" to load the suggestion into preview.
             $('apply-suggested').disabled = !hasSuggested;
         }
 
@@ -1744,8 +1735,6 @@
                 rotationHistory = [];
                 previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
                 previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]];
-                // Do NOT set suppressSuggestions — let renderCorrections show any new
-                // suggestions from the freshly-analysed rotated NRRD automatically.
                 loadImage(currentImage, currentBgChannel);
             } catch {
                 $('apply-rotation').disabled = false;
