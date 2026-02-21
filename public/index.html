@@ -265,6 +265,77 @@
             background: #d5f5e3 !important; border-color: #27ae60 !important;
         }
 
+        /* Axis ruler strips overlaid on thumbnails */
+        .thumb-img-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .axis-ruler {
+            position: absolute;
+            font-size: 10px;
+            font-weight: bold;
+            color: #fff;
+            background: rgba(44, 62, 80, 0.78);
+            padding: 2px 6px;
+            border-radius: 3px;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 2;
+            line-height: 1.4;
+        }
+        .axis-ruler-horiz {
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .axis-ruler-vert {
+            top: 50%;
+            left: 5px;
+            transform: translateY(-50%) rotate(-90deg);
+            transform-origin: center center;
+        }
+
+        /* Axis flip toggle buttons */
+        .thumb-controls button.flip-btn {
+            background: #f8f9fa;
+            border-color: #95a5a6;
+            color: #5d6d7e;
+            font-size: 10px;
+        }
+        .thumb-controls button.flip-btn:hover {
+            background: #eaf4fb;
+            border-color: #2980b9;
+            color: #2980b9;
+        }
+        .thumb-controls button.flip-btn.flip-active {
+            background: #2980b9;
+            border-color: #1a6fa0;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* Flip status message */
+        .flip-status {
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-top: 4px;
+            text-align: center;
+            display: none;
+        }
+        .flip-status.flip-status-warn {
+            display: block;
+            background: #fef9e7;
+            color: #b7950b;
+            border: 1px solid #f0c040;
+        }
+        .flip-status.flip-status-ready {
+            display: block;
+            background: #eafaf1;
+            color: #1e8449;
+            border: 1px solid #27ae60;
+        }
+
         /* Filter bar */
         .filter-bar {
             background: #34495e; padding: 10px 30px;
@@ -477,10 +548,12 @@
                     </div>
                     <button class="btn btn-warning" id="apply-suggested">Apply Suggested</button>
                     <button class="btn btn-primary" id="apply-rotation">Apply Rotation</button>
+                    <button class="btn btn-primary" id="apply-flips" disabled title="Select 2 axis flips on the thumbnails below, then click here to apply">Apply Flips</button>
                     <button class="btn btn-danger" id="reset-rotation">Reset to Original</button>
                 </div>
                 <p style="font-size:11px; color:#7f8c8d; margin-top:4px;">
                     Applying a rotation modifies the original TIFF (both channels) and re-analyzes. Thumbnails and histograms will update.
+                    Use <strong>Apply Flips</strong> after selecting two axis flips on the thumbnails below (two flips = valid 180&deg; rotation).
                 </p>
                 <p style="font-size:11px; color:#7f8c8d; margin-top:2px;">
                     <strong>Reset to Original:</strong> Restores the image to its original orientation before any rotations were applied.
@@ -561,6 +634,11 @@
         let originalThumbnails = {};
         let rotationHistory = []; // tracks each applied rotation step for display
         let suppressSuggestions = false;
+        // Axis flip toggle state — tracks which global axes (X/Y/Z) the user has toggled for
+        // a paired flip.  A single axis flip is a reflection (det=−1, not a valid rotation);
+        // exactly 2 must be selected before Apply Flips becomes available.
+        let axisFlipState = { X: false, Y: false, Z: false };
+        let axisFlipOrder = []; // selection order for FIFO eviction when a 3rd is toggled
 
         const $ = (id) => document.getElementById(id);
 
@@ -691,6 +769,137 @@
             }
             return mapping;
         }
+        // Derive the displayed horizontal and vertical axis labels for each view slot
+        // from the index-space matrix I, accounting for axis transposition (cssRot=90 case).
+        //
+        // Returns an array of 3 objects: [{ horiz: '→ +X (L↔R)', vert: '↑ +Y (A↔P)' }, ...]
+        function computeAxisLabels(I) {
+            const axisLetters    = ['X', 'Y', 'Z'];
+            const axisAnatomical = ['(L\u2194R)', '(A\u2194P)', '(D\u2194V)'];
+            const slotAxis = [2, 1, 0];
+            const labels = [];
+            for (let i = 0; i < 3; i++) {
+                const si = slotAxis[i];
+                const newRem = [0,1,2].filter(x => x !== si);
+                const p = newRem[0], q = newRem[1]; // p=vert, q=horiz
+
+                // Which old axis maps to display row p (vertical)?
+                let pAxis = -1, pSign = 0;
+                for (let c = 0; c < 3; c++) { if (I[p][c] !== 0) { pAxis = c; pSign = I[p][c]; break; } }
+                // Which old axis maps to display col q (horizontal)?
+                let qAxis = -1, qSign = 0;
+                for (let c = 0; c < 3; c++) { if (I[q][c] !== 0) { qAxis = c; qSign = I[q][c]; break; } }
+
+                // Detect cssRot=90 case: when the in-plane axes are transposed in the display
+                // (m=sourceRow ends up ≠ k=expected row).  Reuse computeViewMapping's logic:
+                // find source axis j (what old axis maps to si), then oldRem[0]=k (expected row).
+                let j = -1; for (let c = 0; c < 3; c++) { if (I[si][c] !== 0) { j = c; break; } }
+                const oldRem = [0,1,2].filter(x => x !== j);
+                const k = oldRem[0]; // expected source row axis
+                let m = -1; for (let c = 0; c < 3; c++) { if (I[p][c] !== 0) { m = c; break; } }
+                const isTransposed = m !== k; // true when cssRot=90 swaps H/V in display
+
+                // When axes are transposed (cssRot=90), what we computed as row (p) is actually
+                // displayed as the column (right), and vice-versa.
+                let horizAxis, horizSign, vertAxis, vertSign;
+                if (!isTransposed) {
+                    horizAxis = qAxis; horizSign = qSign;
+                    vertAxis  = pAxis; vertSign  = pSign;
+                } else {
+                    horizAxis = pAxis; horizSign = pSign;
+                    vertAxis  = qAxis; vertSign  = qSign;
+                }
+
+                const hSign = horizSign > 0 ? '+' : '\u2212';
+                const vSign = vertSign  > 0 ? '+' : '\u2212';
+                labels.push({
+                    horiz: `\u2192 ${hSign}${axisLetters[horizAxis]} ${axisAnatomical[horizAxis]}`,
+                    vert:  `\u2191 ${vSign}${axisLetters[vertAxis]} ${axisAnatomical[vertAxis]}`,
+                });
+            }
+            return labels;
+        }
+        // Convert a sorted pair of flip-axis letters to the equivalent 180° rotation.
+        function flipPairToRotation(a, b) {
+            const pair = [a, b].sort().join('');
+            return { XY: { axis: 'z', x: 0, y: 0, z: 180 },
+                     XZ: { axis: 'y', x: 0, y: 180, z: 0 },
+                     YZ: { axis: 'x', x: 180, y: 0, z: 0 } }[pair];
+        }
+        // Toggle an axis flip.  Uses FIFO eviction: if 2 are already selected and the user
+        // toggles a 3rd, the oldest selection is cleared first.
+        function toggleAxisFlip(axis) {
+            if (axisFlipState[axis]) {
+                axisFlipState[axis] = false;
+                axisFlipOrder = axisFlipOrder.filter(a => a !== axis);
+            } else {
+                if (axisFlipOrder.length >= 2) {
+                    const evict = axisFlipOrder.shift();
+                    axisFlipState[evict] = false;
+                }
+                axisFlipState[axis] = true;
+                axisFlipOrder.push(axis);
+            }
+            updateFlipUI();
+        }
+        // Update all flip-button visual states, the status message, and the Apply Flips button.
+        // When 2 flips are selected, temporarily previews the combined effect on thumbnails
+        // without mutating previewMatrix / previewIndexMatrix.
+        function updateFlipUI() {
+            const selected = axisFlipOrder.slice(); // ordered list of toggled axes
+            // Sync button highlight states
+            ['X','Y','Z'].forEach(axis => {
+                document.querySelectorAll(`[data-flip-axis="${axis}"]`).forEach(btn => {
+                    btn.classList.toggle('flip-active', axisFlipState[axis]);
+                });
+            });
+            // Update the flip status message
+            const flipStatus = $('flip-status');
+            if (flipStatus) {
+                if (selected.length === 0) {
+                    flipStatus.textContent = '';
+                    flipStatus.className = 'flip-status';
+                } else if (selected.length === 1) {
+                    flipStatus.textContent = `Flip ${selected[0]} selected \u2014 select one more axis to form a valid rotation`;
+                    flipStatus.className = 'flip-status flip-status-warn';
+                } else {
+                    const rot = flipPairToRotation(selected[0], selected[1]);
+                    flipStatus.textContent = `Flip ${selected.join('+')} \u2261 ${rot.axis.toUpperCase()}=180\u00b0 rotation \u2014 click \u201cApply Flips\u201d`;
+                    flipStatus.className = 'flip-status flip-status-ready';
+                }
+            }
+            // Enable / disable Apply Flips button
+            const applyFlipsBtn = $('apply-flips');
+            if (applyFlipsBtn) applyFlipsBtn.disabled = selected.length !== 2;
+
+            // Thumbnail preview: show combined effect when 2 flips selected, else restore
+            if (selected.length === 2 && originalThumbnails.x) {
+                const rot = flipPairToRotation(selected[0], selected[1]);
+                const R = makeRotMatrix(rot.axis, 180);
+                const combinedIM = mat3Mul(mat3T(R), previewIndexMatrix);
+                const flipMapping = computeViewMapping(combinedIM);
+                const axisLbls = computeAxisLabels(combinedIM);
+                for (let i = 0; i < 3; i++) {
+                    const img = document.getElementById(`preview-sample-${i}`);
+                    if (!img) continue;
+                    const m = flipMapping[i];
+                    const imgData = originalThumbnails[m.sourceKey];
+                    if (imgData) img.src = `data:image/png;base64,${imgData}`;
+                    const transforms = [];
+                    if (m.flipH) transforms.push('scaleX(-1)');
+                    if (m.flipV) transforms.push('scaleY(-1)');
+                    if (m.cssRot !== 0) transforms.push(`rotate(${m.cssRot}deg)`);
+                    img.style.transform = transforms.length ? transforms.join(' ') : 'none';
+                    const hRuler = document.getElementById(`axis-ruler-horiz-${i}`);
+                    const vRuler = document.getElementById(`axis-ruler-vert-${i}`);
+                    if (hRuler) hRuler.textContent = axisLbls[i].horiz;
+                    if (vRuler) vRuler.textContent = axisLbls[i].vert;
+                }
+            } else if (selected.length !== 2) {
+                // Restore thumbnails to current previewMatrix state
+                updateRotationPreview();
+            }
+        }
         function applyPreviewRotation(axis, degrees, viewLabel) {
             const R = makeRotMatrix(axis, degrees);
             previewMatrix = mat3Mul(R, previewMatrix);
@@ -702,7 +911,19 @@
             previewMatrix = [[1,0,0],[0,1,0],[0,0,1]];
             previewIndexMatrix = [[1,0,0],[0,1,0],[0,0,1]];
             rotationHistory = [];
+            axisFlipState = { X: false, Y: false, Z: false };
+            axisFlipOrder = [];
             updateRotationPreview();
+            // Reset flip UI (buttons + status)
+            ['X','Y','Z'].forEach(axis => {
+                document.querySelectorAll(`[data-flip-axis="${axis}"]`).forEach(btn => {
+                    btn.classList.remove('flip-active');
+                });
+            });
+            const flipStatus = $('flip-status');
+            if (flipStatus) { flipStatus.textContent = ''; flipStatus.className = 'flip-status'; }
+            const applyFlipsBtn = $('apply-flips');
+            if (applyFlipsBtn) applyFlipsBtn.disabled = true;
         }
         function syncPreviewFromDropdowns() {
             const rx = parseInt($('rot-x').value) || 0;
@@ -793,6 +1014,14 @@
                         labelEl.classList.add('view-label-highlight');
                     }
                 }
+            }
+            // Update axis direction ruler strips on each thumbnail
+            const axisLabels = computeAxisLabels(previewIndexMatrix);
+            for (let i = 0; i < 3; i++) {
+                const hRuler = document.getElementById(`axis-ruler-horiz-${i}`);
+                const vRuler = document.getElementById(`axis-ruler-vert-${i}`);
+                if (hRuler) hRuler.textContent = axisLabels[i].horiz;
+                if (vRuler) vRuler.textContent = axisLabels[i].vert;
             }
         }
 
@@ -1207,6 +1436,11 @@
             //   Lateral(1):  projects along Y → rotate around Y
             //   Anterior(2): projects along X → rotate around X
             const inPlaneAxis = ['z', 'y', 'x'];
+            // The two global axes visible in-plane for each view slot:
+            //   Dorsal(0)  X-Y plane → flip X (horiz) or flip Y (vert)
+            //   Lateral(1) X-Z plane → flip X (horiz) or flip Z (vert)
+            //   Anterior(2) Y-Z plane → flip Y (horiz) or flip Z (vert)
+            const flipAxesPerView = [['X','Y'], ['X','Z'], ['Y','Z']];
 
             keys.forEach((key, i) => {
                 const row = document.createElement('div');
@@ -1230,11 +1464,30 @@
                     pLabel.textContent = 'Sample (Background)';
                     sDiv.appendChild(pLabel);
 
+                    // Wrap the image in a relative-positioned container so ruler strips
+                    // can be overlaid with absolute positioning.
+                    const imgWrapper = document.createElement('div');
+                    imgWrapper.className = 'thumb-img-wrapper';
+
                     const img = document.createElement('img');
                     img.id = `preview-sample-${i}`;
                     img.src = `data:image/png;base64,${data.original_thumbnails[key]}`;
                     img.alt = `Sample ${key}`;
-                    sDiv.appendChild(img);
+                    imgWrapper.appendChild(img);
+
+                    // Horizontal axis ruler (top-centre of image)
+                    const hRuler = document.createElement('div');
+                    hRuler.className = 'axis-ruler axis-ruler-horiz';
+                    hRuler.id = `axis-ruler-horiz-${i}`;
+                    imgWrapper.appendChild(hRuler);
+
+                    // Vertical axis ruler (left-centre of image, rotated)
+                    const vRuler = document.createElement('div');
+                    vRuler.className = 'axis-ruler axis-ruler-vert';
+                    vRuler.id = `axis-ruler-vert-${i}`;
+                    imgWrapper.appendChild(vRuler);
+
+                    sDiv.appendChild(imgWrapper);
 
                     // Per-view controls
                     const controls = document.createElement('div');
@@ -1284,7 +1537,23 @@
                     });
                     controls.appendChild(swapSelect);
 
+                    // Axis flip toggle buttons — one per in-plane axis for this view.
+                    // Two flips across different global axes = valid 180° rotation.
+                    flipAxesPerView[i].forEach(axis => {
+                        const flipBtn = document.createElement('button');
+                        flipBtn.className = 'flip-btn';
+                        flipBtn.dataset.flipAxis = axis;
+                        flipBtn.textContent = `\u21C6 Flip ${axis}`;
+                        flipBtn.title = `Toggle ${axis}-axis flip (select 2 axes to form a valid rotation)`;
+                        flipBtn.addEventListener('click', () => toggleAxisFlip(axis));
+                        controls.appendChild(flipBtn);
+                    });
+
                     sDiv.appendChild(controls);
+
+                    // Flip status message shown per-view (shared element shown once globally below)
+                    // The global #flip-status is added once outside the loop — see below.
+
                     pair.appendChild(sDiv);
                 }
 
@@ -1298,6 +1567,12 @@
                 row.appendChild(pair);
                 section.appendChild(row);
             });
+
+            // Global flip-status message div (shown once, below all thumbnail rows)
+            const flipStatusDiv = document.createElement('div');
+            flipStatusDiv.id = 'flip-status';
+            flipStatusDiv.className = 'flip-status';
+            section.appendChild(flipStatusDiv);
 
             // Reset preview rotation when loading new image
             resetPreview();
@@ -1472,6 +1747,31 @@
                 $('apply-rotation').disabled = false;
                 $('apply-rotation').textContent = 'Apply Rotation';
                 alert('Failed to apply rotation.');
+            }
+        });
+
+        $('apply-flips').addEventListener('click', async () => {
+            const selected = axisFlipOrder.slice();
+            if (selected.length !== 2) return;
+            const rot = flipPairToRotation(selected[0], selected[1]);
+            $('apply-flips').disabled = true;
+            $('apply-flips').textContent = 'Applying...';
+            try {
+                const r = await fetch(`/api/rotate?name=${encodeURIComponent(currentImage)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rotations: { x: rot.x, y: rot.y, z: rot.z } })
+                });
+                if (!r.ok) throw new Error('Server returned ' + r.status);
+                axisFlipState = { X: false, Y: false, Z: false };
+                axisFlipOrder = [];
+                $('apply-flips').disabled = false;
+                $('apply-flips').textContent = 'Apply Flips';
+                loadImage(currentImage, currentBgChannel);
+            } catch {
+                $('apply-flips').disabled = false;
+                $('apply-flips').textContent = 'Apply Flips';
+                alert('Failed to apply flip.');
             }
         });
 
