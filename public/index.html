@@ -1735,6 +1735,10 @@
                     });
                     if (!r.ok) throw new Error('Server returned ' + r.status);
                 }
+                // Refresh client savedData cache so applySavedOverrides doesn't
+                // re-apply a stale pre-rotation saved rotation on the next loadImage
+                const savedRes = await fetch('/api/saved');
+                if (savedRes.ok) savedData = await savedRes.json();
                 $('apply-rotation').disabled = false;
                 $('apply-rotation').textContent = 'Apply Rotation';
                 rotationHistory = [];
@@ -1763,6 +1767,10 @@
                     body: JSON.stringify({ rotations: { x: rot.x, y: rot.y, z: rot.z } })
                 });
                 if (!r.ok) throw new Error('Server returned ' + r.status);
+                // Refresh client savedData cache so applySavedOverrides doesn't
+                // re-apply a stale pre-flip saved rotation on the next loadImage
+                const savedRes = await fetch('/api/saved');
+                if (savedRes.ok) savedData = await savedRes.json();
                 axisFlipState = { X: false, Y: false, Z: false };
                 axisFlipOrder = [];
                 $('apply-flips').disabled = false;
