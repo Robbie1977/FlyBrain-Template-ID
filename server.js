@@ -676,10 +676,12 @@ app.post('/api/save', (req, res) => {
         delete entry.alignment_rejection_reason;
     }
 
-    // Clear stale alignment job so pipeline status doesn't show old "aligned"
+    // Clear stale alignment job so pipeline status doesn't show old state, and
+    // remove artifacts that could cause the shell script to resume from wrong transforms.
     const imageBase = imageName.split('/').pop();
-    if (alignmentStatus[imageBase] && alignmentStatus[imageBase].status === 'completed') {
-        console.log(`[/api/save] Clearing stale completed alignment for: ${imageBase}`);
+    const staleStatuses = ['completed', 'failed', 'interrupted'];
+    if (alignmentStatus[imageBase] && staleStatuses.includes(alignmentStatus[imageBase].status)) {
+        console.log(`[/api/save] Clearing stale alignment (status=${alignmentStatus[imageBase].status}) for: ${imageBase}`);
         delete alignmentStatus[imageBase];
         const qIdx = alignmentQueue.indexOf(imageBase);
         if (qIdx > -1) alignmentQueue.splice(qIdx, 1);
@@ -760,6 +762,10 @@ app.post('/api/queue-alignment', (req, res) => {
     // If channel NRRDs already exist, queue immediately
     if (!needsChannels) {
         console.log(`[/api/queue-alignment] Channel NRRDs exist, queuing immediately: ${imageBase}`);
+        // Clean any stale xforms/aligned files from a previous run before queuing.
+        // The shell script has resume detection that would reuse stale xforms computed
+        // from a prior (possibly unrotated) NRRD — this ensures a clean start.
+        cleanOldAlignmentArtifacts(imageBase);
         queueAlignment(imageBase);
         return res.json({ success: true, message: 'Image queued for CMTK alignment' });
     }
@@ -803,6 +809,8 @@ function prepareAndQueue(imageBase) {
             writeAlignmentState();
             return;
         }
+        // Clean any stale xforms/aligned files from a previous run before queuing.
+        cleanOldAlignmentArtifacts(imageBase);
         queueAlignment(imageBase);
     });
 
